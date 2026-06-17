@@ -1,5 +1,6 @@
 # kato-bot: ChatOps front-end for kato
 
+{% raw %}
 **Status:** Approved (design)
 
 **Goal:** Build a Go service, `kato-bot`, that lets users run kato troubleshooting
@@ -255,3 +256,4 @@ Mirrors kato's conventions: table tests, `httptest`, no network or live cluster.
 - Helm chart deploys a single-replica Deployment with the Lark secret mounted; no
   Service/Ingress needed (dial-out only). A `/healthz` for liveness is optional since
   there is no inbound traffic; if added, it's a tiny `http` listener for k8s probes.
+{% endraw %}
