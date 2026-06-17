@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  kato-bot:
+  - apiVersion: v2
+    appVersion: 0.1.0
+    created: "2026-06-17T13:25:12.146493+07:00"
+    description: Lark chat adapter for kato troubleshooting flows
+    digest: 2ec68f4de25ebff9f48ba35c0863624a89af3ad7a20c14644563d307114a2043
+    name: kato-bot
+    type: application
+    urls:
+    - kato-bot-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-06-17T13:25:12.146104+07:00"

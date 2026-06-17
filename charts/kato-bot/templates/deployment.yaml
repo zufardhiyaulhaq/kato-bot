@@ -29,8 +29,10 @@ spec:
             capabilities:
               drop: [ALL]
           envFrom:
+            # Use a pre-existing Secret (must hold LARK_APP_ID + LARK_APP_SECRET) when
+            # lark.existingSecret is set; otherwise the chart-managed Secret.
             - secretRef:
-                name: {{ include "kato-bot.name" . }}
+                name: {{ .Values.lark.existingSecret | default (include "kato-bot.name" .) }}
           env:
             - name: KATO_BASE_URL
               value: {{ .Values.katoBaseUrl | quote }}
