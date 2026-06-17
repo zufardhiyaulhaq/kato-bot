@@ -64,17 +64,19 @@ func (r *recordingRenderer) RenderResult(context.Context, core.Reply, string, ma
 	return nil
 }
 
-var lastBusyMsg struct {
-	mu  sync.Mutex
-	msg string
+func (r *recordingRenderer) RenderError(_ context.Context, _ core.Reply, msg string) error {
+	r.mu.Lock()
+	r.kinds = append(r.kinds, "error")
+	r.lastErr = msg
+	r.mu.Unlock()
+	return nil
 }
 
-func (r *recordingRenderer) RenderError(_ context.Context, _ core.Reply, msg string) error {
-	r.note("error")
-	lastBusyMsg.mu.Lock()
-	lastBusyMsg.msg = msg
-	lastBusyMsg.mu.Unlock()
-	return nil
+// errMsg returns the last message passed to RenderError.
+func (r *recordingRenderer) errMsg() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastErr
 }
 
 // TestDispatchSemaphoreCapsRuns verifies that with MaxConcurrent=1, a second submit
@@ -110,10 +112,7 @@ func TestDispatchSemaphoreCapsRuns(t *testing.T) {
 	if got := r.last(); got != "error" {
 		t.Fatalf("over-cap submit: last render = %q, want error(busy)", got)
 	}
-	lastBusyMsg.mu.Lock()
-	msg := lastBusyMsg.msg
-	lastBusyMsg.mu.Unlock()
-	if !strings.Contains(msg, "busy") {
+	if msg := r.errMsg(); !strings.Contains(msg, "busy") {
 		t.Fatalf("expected a busy message, got %q", msg)
 	}
 	select {
