@@ -1,0 +1,22 @@
+image:
+  repository: ghcr.io/zufardhiyaulhaq/kato-bot
+  tag: ""          # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# kato REST API base URL (in-cluster Service DNS).
+katoBaseUrl: http://kato.kato.svc:8080
+katoRunTimeout: 60s
+logLevel: info
+
+# Max in-flight kato runs before new submits get a "kato is busy" card.
+maxConcurrentRuns: 4
+
+# Lark app credentials. Provide via --set or a pre-created secret.
+lark:
+  appId: ""
+  appSecret: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
