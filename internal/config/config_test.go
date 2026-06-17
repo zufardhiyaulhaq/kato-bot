@@ -17,7 +17,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.KatoBaseURL != "http://kato.kato.svc:8080" {
 		t.Errorf("base = %q", cfg.KatoBaseURL)
 	}
-	if cfg.KatoRunTimeout != 60*time.Second {
+	if cfg.KatoRunTimeout != 360*time.Second {
 		t.Errorf("timeout = %v", cfg.KatoRunTimeout)
 	}
 	if cfg.HealthAddr != ":8080" {

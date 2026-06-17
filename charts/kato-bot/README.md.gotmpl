@@ -13,9 +13,13 @@
 Lark group ──ws──> kato-bot ──REST──> kato (in-cluster)
 ```
 
-1. Message the bot → it shows a card listing kato UseCases.
+1. Message the bot → it shows a card listing kato UseCases. In a **direct message** any
+   text works; in a **group** @mention the bot (e.g. `@kato start`).
 2. Pick one → the card becomes a form of that UseCase's inputs.
 3. Submit → the card shows "running…", then the LLM summary kato produced.
+
+Cards are posted as a **threaded reply** to the triggering message, so each
+troubleshooting flow stays in its own thread and keeps the channel tidy.
 
 Access is governed entirely by Lark group membership; kato-bot adds no auth (kato is
 read-only). v1 supports Lark; Slack and Telegram are planned on the same core.
@@ -31,7 +35,7 @@ below set them on the Deployment):
 | `LARK_APP_SECRET` | (required) | Lark app secret |
 | `LARK_BASE_URL` | `https://open.larksuite.com` | open-platform base URL (`https://open.larksuite.com` international, `https://open.feishu.cn` China) |
 | `KATO_BASE_URL` | `http://kato.kato.svc:8080` | kato REST base URL |
-| `KATO_RUN_TIMEOUT` | `60s` | per-run client timeout |
+| `KATO_RUN_TIMEOUT` | `360s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
 | `MAX_CONCURRENT_RUNS` | `4` | cap on in-flight kato runs before submits get a "busy" card |
 | `HEALTH_ADDR` | `:8080` | address for the `/healthz` + `/readyz` probe server |
@@ -41,8 +45,10 @@ before `go run ./cmd/kato-bot` (the binary reads the environment; it does not au
 
 ## Lark app setup
 
-- Enable bot capability; add the bot to a group.
-- Grant scopes: `im:message`, `im:message:send_as_bot` (send/reply/patch messages).
+- Enable bot capability; add the bot to a group (or DM it directly).
+- Grant scopes: `im:message`, `im:message:send_as_bot` (send/reply/patch messages). To be
+  triggered in groups via `@kato …`, the bot must receive @mentioned group messages
+  (default for `im.message.receive_v1`).
 - Event subscription: **Use long connection (WebSocket)**; subscribe to
   `im.message.receive_v1` and enable card callbacks (`card.action.trigger`) over the
   long connection.

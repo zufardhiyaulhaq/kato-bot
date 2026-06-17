@@ -2,7 +2,7 @@
 
 Lark chat adapter for kato troubleshooting flows
 
-![Version: 0.1.2](https://img.shields.io/badge/Version-0.1.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.2](https://img.shields.io/badge/AppVersion-0.1.2-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
+![Version: 0.1.3](https://img.shields.io/badge/Version-0.1.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.3](https://img.shields.io/badge/AppVersion-0.1.3-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
 
 > A Lark chat adapter for [kato](https://github.com/zufardhiyaulhaq/kato). Invite the bot
 > to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
@@ -14,9 +14,13 @@ Lark chat adapter for kato troubleshooting flows
 Lark group ──ws──> kato-bot ──REST──> kato (in-cluster)
 ```
 
-1. Message the bot → it shows a card listing kato UseCases.
+1. Message the bot → it shows a card listing kato UseCases. In a **direct message** any
+   text works; in a **group** @mention the bot (e.g. `@kato start`).
 2. Pick one → the card becomes a form of that UseCase's inputs.
 3. Submit → the card shows "running…", then the LLM summary kato produced.
+
+Cards are posted as a **threaded reply** to the triggering message, so each
+troubleshooting flow stays in its own thread and keeps the channel tidy.
 
 Access is governed entirely by Lark group membership; kato-bot adds no auth (kato is
 read-only). v1 supports Lark; Slack and Telegram are planned on the same core.
@@ -32,7 +36,7 @@ below set them on the Deployment):
 | `LARK_APP_SECRET` | (required) | Lark app secret |
 | `LARK_BASE_URL` | `https://open.larksuite.com` | open-platform base URL (`https://open.larksuite.com` international, `https://open.feishu.cn` China) |
 | `KATO_BASE_URL` | `http://kato.kato.svc:8080` | kato REST base URL |
-| `KATO_RUN_TIMEOUT` | `60s` | per-run client timeout |
+| `KATO_RUN_TIMEOUT` | `360s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
 | `MAX_CONCURRENT_RUNS` | `4` | cap on in-flight kato runs before submits get a "busy" card |
 | `HEALTH_ADDR` | `:8080` | address for the `/healthz` + `/readyz` probe server |
@@ -42,8 +46,10 @@ before `go run ./cmd/kato-bot` (the binary reads the environment; it does not au
 
 ## Lark app setup
 
-- Enable bot capability; add the bot to a group.
-- Grant scopes: `im:message`, `im:message:send_as_bot` (send/reply/patch messages).
+- Enable bot capability; add the bot to a group (or DM it directly).
+- Grant scopes: `im:message`, `im:message:send_as_bot` (send/reply/patch messages). To be
+  triggered in groups via `@kato …`, the bot must receive @mentioned group messages
+  (default for `im.message.receive_v1`).
 - Event subscription: **Use long connection (WebSocket)**; subscribe to
   `im.message.receive_v1` and enable card callbacks (`card.action.trigger`) over the
   long connection.
@@ -84,9 +90,9 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | affinity | object | `{}` | Affinity rules for pod scheduling. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato-bot"` | Container image repository. |
-| image.tag | string | `"v0.1.2"` | Image tag. Defaults to the chart appVersion when empty. |
+| image.tag | string | `"v0.1.3"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoBaseUrl | string | `"http://kato.kato.svc:8080"` | kato REST API base URL (in-cluster Service DNS). |
-| katoRunTimeout | string | `"60s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
+| katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |
 | lark.existingSecret | string | `""` | Name of a pre-existing Secret holding LARK_APP_ID and LARK_APP_SECRET. When set, the chart references it and does NOT create its own Secret (appId/appSecret ignored). |

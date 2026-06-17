@@ -2,7 +2,7 @@ image:
   # -- Container image repository.
   repository: ghcr.io/zufardhiyaulhaq/kato-bot
   # -- Image tag. Defaults to the chart appVersion when empty.
-  tag: "v0.1.2"
+  tag: "v0.1.3"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
@@ -11,7 +11,7 @@ larkBaseUrl: https://open.larksuite.com
 # -- kato REST API base URL (in-cluster Service DNS).
 katoBaseUrl: http://kato.kato.svc:8080
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
-katoRunTimeout: 60s
+katoRunTimeout: 360s
 # -- Lark SDK log verbosity (debug / info / warn / error).
 logLevel: info
 # -- Max in-flight kato runs before new submits get a "kato is busy" card.

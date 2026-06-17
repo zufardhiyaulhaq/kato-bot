@@ -25,6 +25,7 @@ type Adapter struct {
 	AppID         string
 	AppSecret     string
 	Core          *core.Core
+	R             *Renderer // same instance as Core.R; used to deliver the async run result
 	RunTimeout    time.Duration
 	LogLevel      string // "debug" | "info" | "warn" | "error"; default info
 	MaxConcurrent int    // cap on in-flight kato runs; <=0 uses defaultMaxConcurrentRuns
@@ -32,6 +33,42 @@ type Adapter struct {
 
 	semOnce sync.Once
 	sem     chan struct{}
+
+	seen dedup // guards against Lark's at-least-once event redelivery
+}
+
+// dedup drops duplicate message events. Lark delivers events at least once and REDELIVERS
+// an event if it is not ACKed quickly enough; without this, a single "@kato start" can
+// produce two picker cards. seen records a message id and reports whether it was already
+// handled. It keeps a bounded FIFO of recent ids so memory stays flat.
+type dedup struct {
+	mu    sync.Mutex
+	ids   map[string]struct{}
+	order []string
+}
+
+const dedupCap = 1024
+
+func (d *dedup) seen(id string) bool {
+	if id == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.ids == nil {
+		d.ids = make(map[string]struct{}, dedupCap)
+	}
+	if _, ok := d.ids[id]; ok {
+		return true
+	}
+	d.ids[id] = struct{}{}
+	d.order = append(d.order, id)
+	if len(d.order) > dedupCap {
+		oldest := d.order[0]
+		d.order = d.order[1:]
+		delete(d.ids, oldest)
+	}
+	return false
 }
 
 // runSem lazily builds the in-flight-run semaphore (bounded by MaxConcurrent).
@@ -76,16 +113,38 @@ func larkLogLevel(s string) larkcore.LogLevel {
 //     converting FormValue values to strings so the pure decoder remains SDK-free.
 func (a *Adapter) Start(ctx context.Context) error {
 	handler := dispatcher.NewEventDispatcher("", "").
-		OnP2MessageReceiveV1(func(ctx context.Context, e *larkim.P2MessageReceiveV1) error {
+		OnP2MessageReceiveV1(func(_ context.Context, e *larkim.P2MessageReceiveV1) error {
 			// Event/Message are pointer fields in the SDK; guard against a malformed delivery.
 			if e.Event == nil || e.Event.Message == nil {
 				log.Printf("message event: missing Event/Message, skipping")
 				return nil
 			}
-			chatID := derefStr(e.Event.Message.ChatId)
-			msgID := derefStr(e.Event.Message.MessageId)
-			log.Printf("event: message received (chat=%s msg=%s) → showing picker", chatID, msgID)
-			a.dispatch(ctx, decodeMessage(chatID, msgID))
+			msg := e.Event.Message
+			chatID := derefStr(msg.ChatId)
+			msgID := derefStr(msg.MessageId)
+			chatType := derefStr(msg.ChatType)
+			// In a group the bot must be @mentioned (e.g. "@kato start"); direct messages
+			// always trigger the picker. This also guards against any unexpected delivery.
+			if !shouldRespond(chatType, msg.Mentions) {
+				log.Printf("event: message received (chat=%s msg=%s type=%s) — bot not @mentioned, ignoring", chatID, msgID, chatType)
+				return nil
+			}
+			// Drop redeliveries: Lark resends an event if it is not ACKed in time, which
+			// would otherwise spawn a second picker card.
+			if a.seen.seen(msgID) {
+				log.Printf("event: message received (msg=%s) — duplicate redelivery, ignoring", msgID)
+				return nil
+			}
+			log.Printf("event: message received (chat=%s msg=%s type=%s) → showing picker", chatID, msgID, chatType)
+			// Handle in the background so this returns NOW and Lark ACKs immediately. The
+			// picker needs a kato API call plus a Lark reply; doing them inline delays the
+			// ACK past Lark's window and triggers a redelivery (duplicate picker). The
+			// handler ctx is cancelled once we return, so use a fresh, bounded context.
+			go func() {
+				bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				a.dispatch(bg, decodeMessage(chatID, msgID))
+			}()
 			return nil
 		}).
 		OnP2CardActionTrigger(func(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
@@ -125,8 +184,9 @@ func (a *Adapter) Start(ctx context.Context) error {
 				return nil, nil
 			}
 			log.Printf("event: card action received (%T)", intent)
-			a.dispatch(ctx, intent)
-			return nil, nil
+			// Return the updated card in the response (type "raw") so the clicked card
+			// updates inline and stays interactive.
+			return a.handleCardAction(ctx, intent, replyOf(intent)), nil
 		})
 
 	cli := larkws.NewClient(a.AppID, a.AppSecret,
@@ -137,44 +197,10 @@ func (a *Adapter) Start(ctx context.Context) error {
 	return cli.Start(ctx)
 }
 
-// dispatch runs an intent through Core and, if it produced deferred work (a validated
-// run), executes it in a goroutine with an independent timeout so the event callback
-// returns immediately (fast-ack).
-//
-// A submit that would start a kato run is gated by a bounded semaphore: over the cap,
-// the user is told kato is busy instead of spawning an unbounded goroutine. The slot is
-// acquired before Core.Handle (which paints the "running" card), so an over-cap submit
-// repaints to "busy" with no running flicker; it is released when the run completes.
+// dispatch handles a message-triggered intent (the picker). It replies with a new card
+// via Core's renderer. Card-action intents (pick/run) do NOT go through here — they are
+// handled by handleCardAction, which returns the updated card in the callback response.
 func (a *Adapter) dispatch(ctx context.Context, in core.Intent) {
-	if sf, ok := in.(core.SubmitForm); ok {
-		select {
-		case a.runSem() <- struct{}{}:
-			deferred, err := a.Core.Handle(ctx, in)
-			if err != nil {
-				log.Printf("handle %T: %v", in, err)
-			}
-			if deferred == nil {
-				<-a.runSem() // no run started (validation failed / render error): release now
-				return
-			}
-			go func() {
-				defer func() { <-a.runSem() }()
-				bg, cancel := context.WithTimeout(context.Background(), a.RunTimeout)
-				defer cancel()
-				if err := deferred(bg); err != nil {
-					log.Printf("deferred run: %v", err)
-				}
-			}()
-		default:
-			if err := a.Core.R.RenderError(ctx, sf.Reply,
-				"kato is busy (too many runs in flight) — try again shortly"); err != nil {
-				log.Printf("render busy: %v", err)
-			}
-		}
-		return
-	}
-
-	// Non-run intents (list/pick) are cheap and synchronous; no gating needed.
 	if _, err := a.Core.Handle(ctx, in); err != nil {
 		log.Printf("handle %T: %v", in, err)
 	}
@@ -185,4 +211,16 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// shouldRespond decides whether a received message triggers the picker. Direct messages
+// (p2p) always do. Group messages ("group"/"topic_group", or any non-p2p type) only do
+// when the bot is @mentioned — Lark normally only delivers @mentioned group messages to
+// bots, so a non-empty Mentions list is the signal that the user invoked the bot
+// (e.g. "@kato start").
+func shouldRespond(chatType string, mentions []*larkim.MentionEvent) bool {
+	if chatType == "p2p" {
+		return true
+	}
+	return len(mentions) > 0
 }

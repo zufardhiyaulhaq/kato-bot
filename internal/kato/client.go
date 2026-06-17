@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -136,6 +137,7 @@ func (c *Client) Run(ctx context.Context, name string, inputs map[string]string)
 	if inputs == nil {
 		inputs = map[string]string{}
 	}
+	log.Printf("kato: POST run usecase=%s inputs=%v", name, inputs)
 	reqBody, err := json.Marshal(struct {
 		Inputs map[string]string `json:"inputs"`
 	}{Inputs: inputs})

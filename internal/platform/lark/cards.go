@@ -20,12 +20,30 @@ func jsonStr(v any) string {
 	return string(b)
 }
 
-func header(title string) map[string]any {
-	return map[string]any{"title": map[string]any{"tag": "plain_text", "content": title}}
+// card2 builds the Card JSON 2.0 envelope. The whole flow uses 2.0 so every Reply and
+// Patch is the same schema (Lark rejects patching a card with a different-version card),
+// and because the `form`/`input` components only exist in 2.0.
+func card2(title string, elements []any) string {
+	return jsonStr(map[string]any{
+		"schema": "2.0",
+		"header": map[string]any{"title": map[string]any{"tag": "plain_text", "content": title}},
+		"body":   map[string]any{"elements": elements},
+	})
 }
 
 func markdown(content string) map[string]any {
 	return map[string]any{"tag": "markdown", "content": content}
+}
+
+// button2 is a Card 2.0 callback button: the click delivers `value` as the callback's
+// action.value (legacy used a top-level "value"; 2.0 uses a `behaviors` callback).
+func button2(text string, value map[string]any) map[string]any {
+	return map[string]any{
+		"tag":       "button",
+		"text":      map[string]any{"tag": "plain_text", "content": text},
+		"type":      "primary",
+		"behaviors": []any{map[string]any{"type": "callback", "value": value}},
+	}
 }
 
 // buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note.
@@ -35,24 +53,12 @@ func buildPickerCard(ucs []core.UseCase) string {
 		elements = append(elements, map[string]any{"tag": "hr"})
 		elements = append(elements, markdown(fmt.Sprintf("**%s**\n%s", uc.Name, uc.Description)))
 		if uc.Ready {
-			elements = append(elements, map[string]any{
-				"tag": "action",
-				"actions": []any{map[string]any{
-					"tag":  "button",
-					"text": map[string]any{"tag": "plain_text", "content": "Select ▸"},
-					"type": "primary",
-					"value": map[string]any{"action": "pick", "usecase": uc.Name},
-				}},
-			})
+			elements = append(elements, button2("Select ▸", map[string]any{"action": "pick", "usecase": uc.Name}))
 		} else {
 			elements = append(elements, markdown("_not ready (failed validation in cluster)_"))
 		}
 	}
-	return jsonStr(map[string]any{
-		"config":   map[string]any{"wide_screen_mode": true},
-		"header":   header("kato"),
-		"elements": elements,
-	})
+	return card2("kato", elements)
 }
 
 // buildFormCard renders one input per declared input, prefilled, with an optional error
@@ -65,6 +71,24 @@ func buildPickerCard(ucs []core.UseCase) string {
 // nothing). The behavior's value lands in the callback's action.value and the input
 // values in action.form_value, which decode.go reads.
 func buildFormCard(c core.Contract, prefill map[string]string, formErr string) string {
+	runValue := map[string]any{"action": "run", "usecase": c.Name}
+
+	// No declared inputs: there's nothing to fill, so skip the form container entirely
+	// and use a plain callback button — the exact button type that already works for the
+	// picker's Select. (The form/form_submit path is only needed to collect input values.)
+	if len(c.Inputs) == 0 {
+		elems := []any{}
+		if formErr != "" {
+			elems = append(elems, markdown("⚠️ "+formErr))
+		}
+		elems = append(elems,
+			markdown(fmt.Sprintf("🔧 **%s**\n%s", c.Name, c.Description)),
+			markdown("_No inputs required — click Run._"),
+			button2("▶ Run troubleshoot", runValue),
+		)
+		return card2(c.Name, elems)
+	}
+
 	formElems := []any{}
 	if formErr != "" {
 		formElems = append(formElems, markdown("⚠️ "+formErr))
@@ -88,22 +112,23 @@ func buildFormCard(c core.Contract, prefill map[string]string, formErr string) s
 		}
 		formElems = append(formElems, input)
 	}
-	formElems = append(formElems, map[string]any{
+	// Submit button, wrapped in a column_set to match Lark's documented form example.
+	submitBtn := map[string]any{
 		"tag":              "button",
 		"text":             map[string]any{"tag": "plain_text", "content": "▶ Run troubleshoot"},
 		"type":             "primary",
 		"form_action_type": "submit",
 		"name":             "submit",
-		"behaviors": []any{
-			map[string]any{"type": "callback", "value": map[string]any{"action": "run", "usecase": c.Name}},
+		"behaviors":        []any{map[string]any{"type": "callback", "value": runValue}},
+	}
+	formElems = append(formElems, map[string]any{
+		"tag": "column_set",
+		"columns": []any{
+			map[string]any{"tag": "column", "width": "auto", "elements": []any{submitBtn}},
 		},
 	})
 	form := map[string]any{"tag": "form", "name": "kato_form", "elements": formElems}
-	return jsonStr(map[string]any{
-		"schema": "2.0",
-		"header": map[string]any{"title": map[string]any{"tag": "plain_text", "content": c.Name}},
-		"body":   map[string]any{"elements": []any{form}},
-	})
+	return card2(c.Name, []any{form})
 }
 
 // kvLine renders the inputs as "k=v  k=v" display text. Order is intentionally
@@ -118,14 +143,10 @@ func kvLine(inputs map[string]string) string {
 
 // buildRunningCard is the immediate ack repaint shown while kato runs.
 func buildRunningCard(useCase string, inputs map[string]string) string {
-	return jsonStr(map[string]any{
-		"config": map[string]any{"wide_screen_mode": true},
-		"header": header("kato"),
-		"elements": []any{
-			markdown(fmt.Sprintf("⏳ **Running %s…**", useCase)),
-			markdown(kvLine(inputs)),
-			markdown("_This can take up to ~30s while kato runs the checks and summarizes._"),
-		},
+	return card2("kato", []any{
+		markdown(fmt.Sprintf("⏳ **Running %s…**", useCase)),
+		markdown(kvLine(inputs)),
+		markdown("_This can take up to ~30s while kato runs the checks and summarizes._"),
 	})
 }
 
@@ -155,26 +176,11 @@ func buildResultCard(useCase string, res core.RunResult) string {
 			markdown("_run: "+res.Run+"_"),
 		)
 	}
-	elements = append(elements, map[string]any{
-		"tag": "action",
-		"actions": []any{map[string]any{
-			"tag":   "button",
-			"text":  map[string]any{"tag": "plain_text", "content": "↻ Run again"},
-			"value": map[string]any{"action": "pick", "usecase": useCase},
-		}},
-	})
-	return jsonStr(map[string]any{
-		"config":   map[string]any{"wide_screen_mode": true},
-		"header":   header(useCase),
-		"elements": elements,
-	})
+	elements = append(elements, button2("↻ Run again", map[string]any{"action": "pick", "usecase": useCase}))
+	return card2(useCase, elements)
 }
 
 // buildErrorCard is a standalone error (e.g. kato unreachable at list time).
 func buildErrorCard(msg string) string {
-	return jsonStr(map[string]any{
-		"config":   map[string]any{"wide_screen_mode": true},
-		"header":   header("kato"),
-		"elements": []any{markdown("❌ " + msg)},
-	})
+	return card2("kato", []any{markdown("❌ " + msg)})
 }

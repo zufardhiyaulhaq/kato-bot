@@ -31,7 +31,7 @@ func Load() (Config, error) {
 		KatoBaseURL:       envOr("KATO_BASE_URL", "http://kato.kato.svc:8080"),
 		HealthAddr:        envOr("HEALTH_ADDR", ":8080"),
 		LogLevel:          envOr("LOG_LEVEL", "info"),
-		KatoRunTimeout:    60 * time.Second,
+		KatoRunTimeout:    360 * time.Second,
 		MaxConcurrentRuns: 4,
 		// Open-platform base URL. Lark international: https://open.larksuite.com;
 		// Feishu (China): https://open.feishu.cn.

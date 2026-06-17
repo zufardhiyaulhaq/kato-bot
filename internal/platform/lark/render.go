@@ -27,6 +27,12 @@ func (rd *Renderer) emit(ctx context.Context, r core.Reply, cardJSON string) err
 	return rd.S.Reply(ctx, r.InReplyTo, cardJSON)
 }
 
+// PatchCard updates the content of an existing card message. Used to deliver the async
+// run result onto the same card after the callback response has already been sent.
+func (rd *Renderer) PatchCard(ctx context.Context, messageID, cardJSON string) error {
+	return rd.S.Patch(ctx, messageID, cardJSON)
+}
+
 func (rd *Renderer) RenderPicker(ctx context.Context, r core.Reply, ucs []core.UseCase) error {
 	return rd.emit(ctx, r, buildPickerCard(ucs))
 }

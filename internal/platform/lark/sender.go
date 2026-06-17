@@ -3,6 +3,7 @@ package lark
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -28,11 +29,13 @@ func openBaseURL(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// Reply posts a new interactive card as a reply to the user's message.
+// Reply posts a new interactive card as a threaded reply to the user's message.
+// ReplyInThread(true) makes the card (and the whole pick→form→result flow that follows
+// on the same card) live in a thread off the user's message, keeping group chats tidy.
 //
 // VERIFY (larkim request shape): confirmed against oapi-sdk-go v3.9.5:
 //   - larkim.NewReplyMessageReqBuilder().MessageId(id).Body(...).Build() is the correct builder chain.
-//   - Body uses NewReplyMessageReqBodyBuilder().MsgType("interactive").Content(cardJSON).Build().
+//   - Body uses NewReplyMessageReqBodyBuilder().MsgType("interactive").Content(cardJSON).ReplyInThread(true).Build().
 //   - cli.Im.V1.Message.Reply(ctx, req) — Im is *im.Service which embeds *v1.V1; V1.Message is *message.
 //   - resp.Success() exists; resp.Msg and resp.Code come from embedded larkcore.CodeError.
 func (s *apiSender) Reply(ctx context.Context, toMessageID, cardJSON string) error {
@@ -41,15 +44,19 @@ func (s *apiSender) Reply(ctx context.Context, toMessageID, cardJSON string) err
 		Body(larkim.NewReplyMessageReqBodyBuilder().
 			MsgType("interactive").
 			Content(cardJSON).
+			ReplyInThread(true).
 			Build()).
 		Build()
 	resp, err := s.cli.Im.V1.Message.Reply(ctx, req)
 	if err != nil {
+		log.Printf("lark reply transport error (to=%s): %v", toMessageID, err)
 		return err
 	}
 	if !resp.Success() {
+		log.Printf("lark reply FAILED (to=%s): code=%d msg=%s", toMessageID, resp.Code, resp.Msg)
 		return fmt.Errorf("lark reply: %s (code %d)", resp.Msg, resp.Code)
 	}
+	log.Printf("lark reply ok (to=%s, new card sent)", toMessageID)
 	return nil
 }
 
@@ -68,10 +75,13 @@ func (s *apiSender) Patch(ctx context.Context, messageID, cardJSON string) error
 		Build()
 	resp, err := s.cli.Im.V1.Message.Patch(ctx, req)
 	if err != nil {
+		log.Printf("lark patch transport error (msg=%s): %v", messageID, err)
 		return err
 	}
 	if !resp.Success() {
+		log.Printf("lark patch FAILED (msg=%s): code=%d msg=%s", messageID, resp.Code, resp.Msg)
 		return fmt.Errorf("lark patch: %s (code %d)", resp.Msg, resp.Code)
 	}
+	log.Printf("lark patch ok (msg=%s)", messageID)
 	return nil
 }

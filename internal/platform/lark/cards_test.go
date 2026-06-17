@@ -23,8 +23,12 @@ func TestBuildPickerCard(t *testing.T) {
 		{Name: "broken", Description: "x", Ready: false},
 	})
 	m := asMap(t, card)
-	if _, ok := m["elements"]; !ok {
-		t.Fatal("no elements")
+	if m["schema"] != "2.0" {
+		t.Errorf("expected card schema 2.0, got %v", m["schema"])
+	}
+	body, ok := m["body"].(map[string]any)
+	if !ok || body["elements"] == nil {
+		t.Fatal("no body.elements")
 	}
 	// The card must mention each usecase name and carry a pick action value for the ready one.
 	if !strings.Contains(card, "pod-crashloop") {

@@ -28,6 +28,7 @@ func main() {
 		AppID:         cfg.LarkAppID,
 		AppSecret:     cfg.LarkAppSecret,
 		Core:          c,
+		R:             renderer,
 		RunTimeout:    cfg.KatoRunTimeout,
 		LogLevel:      cfg.LogLevel,
 		MaxConcurrent: cfg.MaxConcurrentRuns,
@@ -50,7 +51,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("kato-bot connecting to Lark; kato at %s", cfg.KatoBaseURL)
+	log.Printf("kato-bot connecting to Lark; kato at %s (run timeout %s, domain %s)",
+		cfg.KatoBaseURL, cfg.KatoRunTimeout, cfg.LarkBaseURL)
 	if err := adapter.Start(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("lark adapter: %v", err)
 	}

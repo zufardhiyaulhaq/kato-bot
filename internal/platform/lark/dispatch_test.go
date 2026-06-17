@@ -2,18 +2,48 @@ package lark
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 )
 
+// TestShouldRespond covers the group-vs-DM gating: DMs always trigger the picker; group
+// messages only when the bot is @mentioned.
+func TestShouldRespond(t *testing.T) {
+	mention := []*larkim.MentionEvent{{}}
+	cases := []struct {
+		name     string
+		chatType string
+		mentions []*larkim.MentionEvent
+		want     bool
+	}{
+		{"p2p no mention", "p2p", nil, true},
+		{"p2p with mention", "p2p", mention, true},
+		{"group no mention", "group", nil, false},
+		{"group with mention", "group", mention, true},
+		{"topic_group with mention", "topic_group", mention, true},
+		{"topic_group no mention", "topic_group", nil, false},
+		{"unknown no mention", "", nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shouldRespond(c.chatType, c.mentions); got != c.want {
+				t.Errorf("shouldRespond(%q, %d mentions) = %v, want %v", c.chatType, len(c.mentions), got, c.want)
+			}
+		})
+	}
+}
+
 // blockingKato holds Run until release is closed, so a test can pin the semaphore slot.
 type blockingKato struct {
 	contract core.Contract
-	started  chan struct{} // closed-ish: receives once Run is entered
+	started  chan struct{} // receives once Run is entered
 	release  chan struct{} // Run returns after this is closed
 }
 
@@ -27,97 +57,71 @@ func (b *blockingKato) Run(context.Context, string, map[string]string) (core.Run
 	return core.RunResult{Phase: "Completed", Summary: "ok"}, nil
 }
 
-// recordingRenderer records which render method was last called (thread-safe).
-type recordingRenderer struct {
-	mu    sync.Mutex
-	kinds   []string
-	lastErr string // last message passed to RenderError
-}
-
-func (r *recordingRenderer) note(k string) {
-	r.mu.Lock()
-	r.kinds = append(r.kinds, k)
-	r.mu.Unlock()
-}
-func (r *recordingRenderer) last() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.kinds) == 0 {
-		return ""
+// TestDedupSeen verifies redelivered message ids are dropped, distinct ids pass, empty
+// ids are never deduped, and the FIFO eviction keeps memory bounded.
+func TestDedupSeen(t *testing.T) {
+	var d dedup
+	if d.seen("a") {
+		t.Fatal("first sighting of a should be new")
 	}
-	return r.kinds[len(r.kinds)-1]
-}
-func (r *recordingRenderer) RenderPicker(context.Context, core.Reply, []core.UseCase) error {
-	r.note("picker")
-	return nil
-}
-func (r *recordingRenderer) RenderForm(context.Context, core.Reply, core.Contract, map[string]string, string) error {
-	r.note("form")
-	return nil
-}
-func (r *recordingRenderer) RenderRunning(context.Context, core.Reply, string, map[string]string) error {
-	r.note("running")
-	return nil
-}
-func (r *recordingRenderer) RenderResult(context.Context, core.Reply, string, map[string]string, core.RunResult) error {
-	r.note("result")
-	return nil
-}
-
-func (r *recordingRenderer) RenderError(_ context.Context, _ core.Reply, msg string) error {
-	r.mu.Lock()
-	r.kinds = append(r.kinds, "error")
-	r.lastErr = msg
-	r.mu.Unlock()
-	return nil
+	if !d.seen("a") {
+		t.Fatal("second sighting of a should be a duplicate")
+	}
+	if d.seen("b") {
+		t.Fatal("first sighting of b should be new")
+	}
+	if d.seen("") || d.seen("") {
+		t.Fatal("empty id must never be treated as seen")
+	}
+	// Overflow the cap, then confirm the oldest id ("a") was evicted (seen as new again)
+	// while a recent id stays deduped.
+	for i := 0; i < dedupCap+5; i++ {
+		d.seen("fill-" + strconv.Itoa(i))
+	}
+	if d.seen("a") {
+		t.Fatal("a should have been evicted after overflow and seen as new")
+	}
 }
 
-// errMsg returns the last message passed to RenderError.
-func (r *recordingRenderer) errMsg() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.lastErr
-}
-
-// TestDispatchSemaphoreCapsRuns verifies that with MaxConcurrent=1, a second submit
-// while the first run is still in flight is rejected with a "busy" error card and does
-// not start a second run.
-func TestDispatchSemaphoreCapsRuns(t *testing.T) {
+// TestCardActionSemaphoreCapsRuns verifies that with MaxConcurrent=1, a second run
+// submitted while the first is still in flight gets a "busy" card and starts no new run.
+func TestCardActionSemaphoreCapsRuns(t *testing.T) {
 	bk := &blockingKato{
 		contract: core.Contract{Name: "uc"},
 		started:  make(chan struct{}, 1),
 		release:  make(chan struct{}),
 	}
-	r := &recordingRenderer{}
 	a := &Adapter{
-		Core:          &core.Core{Kato: bk, R: r},
+		Core:          &core.Core{Kato: bk, R: &captureRenderer{}},
+		R:             &Renderer{S: &fakeSender{}},
 		RunTimeout:    5 * time.Second,
 		MaxConcurrent: 1,
 	}
-
 	submit := core.SubmitForm{Reply: core.Reply{MessageID: "card1"}, Name: "uc", Inputs: map[string]string{}}
 
-	// First submit: acquires the only slot and blocks inside Run.
-	a.dispatch(context.Background(), submit)
+	// First submit: returns a running-card response and spawns the run (which blocks).
+	resp1 := a.handleCardAction(context.Background(), submit, submit.Reply)
+	if resp1 == nil || resp1.Card == nil {
+		t.Fatal("expected a running-card response")
+	}
 	select {
 	case <-bk.started:
 	case <-time.After(2 * time.Second):
 		t.Fatal("first run never started")
 	}
 
-	// Second submit while the slot is held: must be rejected as busy, no new run.
-	// (bk.Run sends to bk.started on entry; a second entry would block, so the fact
-	// that we never see a second "started" confirms no second run was admitted.)
-	a.dispatch(context.Background(), submit)
-	if got := r.last(); got != "error" {
-		t.Fatalf("over-cap submit: last render = %q, want error(busy)", got)
+	// Second submit while the slot is held: must return a busy card, no new run.
+	resp2 := a.handleCardAction(context.Background(), submit, submit.Reply)
+	if resp2 == nil || resp2.Card == nil {
+		t.Fatal("expected a busy-card response")
 	}
-	if msg := r.errMsg(); !strings.Contains(msg, "busy") {
-		t.Fatalf("expected a busy message, got %q", msg)
+	raw, _ := json.Marshal(resp2.Card.Data)
+	if !strings.Contains(string(raw), "busy") {
+		t.Fatalf("expected a busy message, got %s", raw)
 	}
 	select {
 	case <-bk.started:
-		t.Fatal("a second run was started despite the cap")
+		t.Fatal("a second run started despite the cap")
 	default:
 	}
 
