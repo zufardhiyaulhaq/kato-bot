@@ -18,6 +18,7 @@ type Config struct {
 	HealthAddr        string
 	LogLevel          string
 	MaxConcurrentRuns int
+	LarkBaseURL       string
 }
 
 // Load reads config from env, applying defaults. LARK_APP_ID and LARK_APP_SECRET are
@@ -32,6 +33,9 @@ func Load() (Config, error) {
 		LogLevel:          envOr("LOG_LEVEL", "info"),
 		KatoRunTimeout:    60 * time.Second,
 		MaxConcurrentRuns: 4,
+		// Open-platform base URL. Lark international: https://open.larksuite.com;
+		// Feishu (China): https://open.feishu.cn.
+		LarkBaseURL: envOr("LARK_BASE_URL", "https://open.larksuite.com"),
 	}
 	if strings.TrimSpace(cfg.LarkAppID) == "" || strings.TrimSpace(cfg.LarkAppSecret) == "" {
 		return Config{}, fmt.Errorf("LARK_APP_ID and LARK_APP_SECRET are required")

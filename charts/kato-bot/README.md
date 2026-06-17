@@ -2,7 +2,7 @@
 
 Lark chat adapter for kato troubleshooting flows
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.0](https://img.shields.io/badge/AppVersion-0.1.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
+![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.1.1](https://img.shields.io/badge/AppVersion-0.1.1-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
 
 > A Lark chat adapter for [kato](https://github.com/zufardhiyaulhaq/kato). Invite the bot
 > to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
@@ -30,6 +30,7 @@ below set them on the Deployment):
 |---|---|---|
 | `LARK_APP_ID` | (required) | Lark app id |
 | `LARK_APP_SECRET` | (required) | Lark app secret |
+| `LARK_BASE_URL` | `https://open.larksuite.com` | open-platform base URL (`https://open.larksuite.com` international, `https://open.feishu.cn` China) |
 | `KATO_BASE_URL` | `http://kato.kato.svc:8080` | kato REST base URL |
 | `KATO_RUN_TIMEOUT` | `60s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
@@ -89,6 +90,7 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |
 | lark.existingSecret | string | `""` | Name of a pre-existing Secret holding LARK_APP_ID and LARK_APP_SECRET. When set, the chart references it and does NOT create its own Secret (appId/appSecret ignored). |
+| larkBaseUrl | string | `"https://open.larksuite.com"` | Lark open-platform base URL. Lark international: https://open.larksuite.com; Feishu (China): https://open.feishu.cn. |
 | logLevel | string | `"info"` | Lark SDK log verbosity (debug / info / warn / error). |
 | maxConcurrentRuns | int | `4` | Max in-flight kato runs before new submits get a "kato is busy" card. |
 | nodeSelector | object | `{}` | Node selector for pod scheduling. |

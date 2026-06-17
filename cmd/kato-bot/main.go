@@ -21,7 +21,7 @@ func main() {
 	}
 
 	katoClient := kato.New(cfg.KatoBaseURL, cfg.KatoRunTimeout)
-	renderer := lark.NewSender(cfg.LarkAppID, cfg.LarkAppSecret)
+	renderer := lark.NewSender(cfg.LarkAppID, cfg.LarkAppSecret, cfg.LarkBaseURL)
 	c := &core.Core{Kato: katoClient, R: renderer}
 
 	adapter := &lark.Adapter{
@@ -31,6 +31,7 @@ func main() {
 		RunTimeout:    cfg.KatoRunTimeout,
 		LogLevel:      cfg.LogLevel,
 		MaxConcurrent: cfg.MaxConcurrentRuns,
+		BaseURL:       cfg.LarkBaseURL,
 	}
 
 	// Health server for k8s probes (no inbound app traffic; this is liveness only).

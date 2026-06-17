@@ -3,6 +3,7 @@ package lark
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -11,9 +12,20 @@ import (
 // apiSender implements sender using the Lark API client (larkim).
 type apiSender struct{ cli *lark.Client }
 
-// NewSender builds a Renderer backed by the Lark API client for the given app creds.
-func NewSender(appID, appSecret string) *Renderer {
-	return &Renderer{S: &apiSender{cli: lark.NewClient(appID, appSecret)}}
+// NewSender builds a Renderer backed by the Lark API client for the given app creds,
+// targeting the given open-platform base URL (e.g. https://open.larksuite.com).
+func NewSender(appID, appSecret, baseURL string) *Renderer {
+	cli := lark.NewClient(appID, appSecret, lark.WithOpenBaseUrl(openBaseURL(baseURL)))
+	return &Renderer{S: &apiSender{cli: cli}}
+}
+
+// openBaseURL returns the configured open-platform base URL, defaulting to the Lark
+// international domain when empty.
+func openBaseURL(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return lark.LarkBaseUrl // https://open.larksuite.com
+	}
+	return strings.TrimSpace(s)
 }
 
 // Reply posts a new interactive card as a reply to the user's message.

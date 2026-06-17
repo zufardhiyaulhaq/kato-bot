@@ -25,6 +25,8 @@ spec:
             - secretRef:
                 name: {{ .Values.lark.existingSecret | default (include "kato-bot.name" .) }}
           env:
+            - name: LARK_BASE_URL
+              value: {{ .Values.larkBaseUrl | quote }}
             - name: KATO_BASE_URL
               value: {{ .Values.katoBaseUrl | quote }}
             - name: KATO_RUN_TIMEOUT

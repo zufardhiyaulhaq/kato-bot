@@ -28,6 +28,7 @@ type Adapter struct {
 	RunTimeout    time.Duration
 	LogLevel      string // "debug" | "info" | "warn" | "error"; default info
 	MaxConcurrent int    // cap on in-flight kato runs; <=0 uses defaultMaxConcurrentRuns
+	BaseURL       string // open-platform base URL (e.g. https://open.larksuite.com)
 
 	semOnce sync.Once
 	sem     chan struct{}
@@ -128,6 +129,7 @@ func (a *Adapter) Start(ctx context.Context) error {
 
 	cli := larkws.NewClient(a.AppID, a.AppSecret,
 		larkws.WithEventHandler(handler),
+		larkws.WithDomain(openBaseURL(a.BaseURL)),
 		larkws.WithLogLevel(larkLogLevel(a.LogLevel)),
 	)
 	return cli.Start(ctx)

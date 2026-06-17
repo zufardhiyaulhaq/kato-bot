@@ -26,6 +26,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxConcurrentRuns != 4 {
 		t.Errorf("maxConcurrentRuns = %d, want 4", cfg.MaxConcurrentRuns)
 	}
+	if cfg.LarkBaseURL != "https://open.larksuite.com" {
+		t.Errorf("larkBaseURL = %q, want https://open.larksuite.com", cfg.LarkBaseURL)
+	}
 }
 
 func TestLoadMaxConcurrentRuns(t *testing.T) {

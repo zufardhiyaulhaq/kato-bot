@@ -6,6 +6,8 @@ image:
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
+# -- Lark open-platform base URL. Lark international: https://open.larksuite.com; Feishu (China): https://open.feishu.cn.
+larkBaseUrl: https://open.larksuite.com
 # -- kato REST API base URL (in-cluster Service DNS).
 katoBaseUrl: http://kato.kato.svc:8080
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
