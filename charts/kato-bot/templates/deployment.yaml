@@ -15,19 +15,10 @@ spec:
       labels:
         {{- include "kato-bot.labels" . | nindent 8 }}
     spec:
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: kato-bot
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ALL]
           envFrom:
             # Use a pre-existing Secret (must hold LARK_APP_ID + LARK_APP_SECRET) when
             # lark.existingSecret is set; otherwise the chart-managed Secret.
