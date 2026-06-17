@@ -84,6 +84,7 @@ func (a *Adapter) Start(ctx context.Context) error {
 			}
 			chatID := derefStr(e.Event.Message.ChatId)
 			msgID := derefStr(e.Event.Message.MessageId)
+			log.Printf("event: message received (chat=%s msg=%s) → showing picker", chatID, msgID)
 			a.dispatch(ctx, decodeMessage(chatID, msgID))
 			return nil
 		}).
@@ -123,6 +124,7 @@ func (a *Adapter) Start(ctx context.Context) error {
 				log.Printf("card action decode: %v", err)
 				return nil, nil
 			}
+			log.Printf("event: card action received (%T)", intent)
 			a.dispatch(ctx, intent)
 			return nil, nil
 		})

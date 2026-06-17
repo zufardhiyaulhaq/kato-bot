@@ -56,10 +56,14 @@ func buildPickerCard(ucs []core.UseCase) string {
 }
 
 // buildFormCard renders one input per declared input, prefilled, with an optional error
-// banner, plus Back and Run buttons. The Run button submits the form's input values.
+// banner and a Run submit button.
 //
-// VERIFY: confirm the form-widget schema below (form container + input widgets +
-// form_submit button) against the current Lark card spec before relying on it.
+// This is a Card JSON 2.0 card ("schema":"2.0" + "body"): the `form` container and
+// `input` components ONLY work in 2.0 — in the legacy format the inputs render but the
+// submit button fires no callback. The submit button uses `form_action_type:"submit"`
+// plus a `behaviors` callback (the legacy `action_type:"form_submit"` + `value` does
+// nothing). The behavior's value lands in the callback's action.value and the input
+// values in action.form_value, which decode.go reads.
 func buildFormCard(c core.Contract, prefill map[string]string, formErr string) string {
 	formElems := []any{}
 	if formErr != "" {
@@ -71,11 +75,12 @@ func buildFormCard(c core.Contract, prefill map[string]string, formErr string) s
 		if in.Required {
 			label += " *"
 		}
+		// Label as its own markdown line; the input carries only verified 2.0 attributes.
+		formElems = append(formElems, markdown("**"+label+"**"))
 		input := map[string]any{
 			"tag":         "input",
 			"name":        in.Name,
 			"placeholder": map[string]any{"tag": "plain_text", "content": in.Name},
-			"label":       map[string]any{"tag": "plain_text", "content": label},
 			"required":    in.Required,
 		}
 		if v := prefill[in.Name]; v != "" {
@@ -84,23 +89,20 @@ func buildFormCard(c core.Contract, prefill map[string]string, formErr string) s
 		formElems = append(formElems, input)
 	}
 	formElems = append(formElems, map[string]any{
-		"tag": "action",
-		"actions": []any{
-			map[string]any{
-				"tag":         "button",
-				"text":        map[string]any{"tag": "plain_text", "content": "▶ Run troubleshoot"},
-				"type":        "primary",
-				"action_type": "form_submit",
-				"name":        "submit",
-				"value":       map[string]any{"action": "run", "usecase": c.Name},
-			},
+		"tag":              "button",
+		"text":             map[string]any{"tag": "plain_text", "content": "▶ Run troubleshoot"},
+		"type":             "primary",
+		"form_action_type": "submit",
+		"name":             "submit",
+		"behaviors": []any{
+			map[string]any{"type": "callback", "value": map[string]any{"action": "run", "usecase": c.Name}},
 		},
 	})
 	form := map[string]any{"tag": "form", "name": "kato_form", "elements": formElems}
 	return jsonStr(map[string]any{
-		"config":   map[string]any{"wide_screen_mode": true},
-		"header":   header(c.Name),
-		"elements": []any{form},
+		"schema": "2.0",
+		"header": map[string]any{"title": map[string]any{"tag": "plain_text", "content": c.Name}},
+		"body":   map[string]any{"elements": []any{form}},
 	})
 }
 
