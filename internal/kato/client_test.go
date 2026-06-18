@@ -11,7 +11,7 @@ import (
 
 func newClient(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
-	return New(srv.URL, 5*time.Second)
+	return New(srv.URL, 5*time.Second, false)
 }
 
 func TestListUseCases(t *testing.T) {

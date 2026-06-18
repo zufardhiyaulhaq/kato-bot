@@ -4,6 +4,7 @@ package kato
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,12 +24,20 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// New returns a Client. timeout bounds each request (incl. the slow /run).
-func New(baseURL string, timeout time.Duration) *Client {
-	return &Client{
+// New returns a Client. timeout bounds each request (incl. the slow /run). When
+// insecureSkipVerify is true the client does NOT validate the kato server's TLS
+// certificate — use only for self-signed certs on a trusted network (MITM-exposed).
+func New(baseURL string, timeout time.Duration, insecureSkipVerify bool) *Client {
+	c := &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		HTTP:    &http.Client{Timeout: timeout},
 	}
+	if insecureSkipVerify {
+		c.HTTP.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // opt-in per-cluster for self-signed certs
+		}
+	}
+	return c
 }
 
 // APIError is a non-2xx response from kato. Status is the HTTP code; Msg is kato's

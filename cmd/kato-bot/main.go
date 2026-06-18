@@ -26,7 +26,7 @@ func main() {
 	registry := core.NewRegistry()
 	names := make([]string, 0, len(cfg.Clusters))
 	for _, cl := range cfg.Clusters {
-		registry.Add(core.Cluster{Name: cl.Name, Label: cl.Label}, kato.New(cl.URL, cfg.KatoRunTimeout))
+		registry.Add(core.Cluster{Name: cl.Name, Label: cl.Label}, kato.New(cl.URL, cfg.KatoRunTimeout, cl.InsecureSkipVerify))
 		names = append(names, cl.Name)
 	}
 	c := &core.Core{Clusters: registry, R: renderer}

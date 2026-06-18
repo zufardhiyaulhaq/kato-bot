@@ -16,6 +16,9 @@ type ClusterConfig struct {
 	Name  string
 	URL   string
 	Label string
+	// InsecureSkipVerify disables TLS certificate verification for this cluster's kato
+	// URL. Only meaningful for https URLs; use for self-signed certs on a trusted network.
+	InsecureSkipVerify bool
 }
 
 // Config is the resolved runtime configuration.
@@ -76,9 +79,10 @@ func Load() (Config, error) {
 // clustersFile mirrors the YAML shape of the clusters config file.
 type clustersFile struct {
 	Clusters []struct {
-		Name  string `yaml:"name"`
-		URL   string `yaml:"url"`
-		Label string `yaml:"label"`
+		Name               string `yaml:"name"`
+		URL                string `yaml:"url"`
+		Label              string `yaml:"label"`
+		InsecureSkipVerify bool   `yaml:"insecureSkipVerify"`
 	} `yaml:"clusters"`
 }
 
@@ -111,7 +115,12 @@ func loadClusters(path string) ([]ClusterConfig, error) {
 			return nil, fmt.Errorf("clusters file %s: duplicate cluster name %q", path, name)
 		}
 		seen[name] = true
-		out = append(out, ClusterConfig{Name: name, URL: url, Label: strings.TrimSpace(c.Label)})
+		out = append(out, ClusterConfig{
+			Name:               name,
+			URL:                url,
+			Label:              strings.TrimSpace(c.Label),
+			InsecureSkipVerify: c.InsecureSkipVerify,
+		})
 	}
 	return out, nil
 }

@@ -43,6 +43,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Clusters[1].Name != "staging" || cfg.Clusters[1].Label != "" {
 		t.Errorf("cluster[1] = %+v", cfg.Clusters[1])
 	}
+	if cfg.Clusters[0].InsecureSkipVerify || cfg.Clusters[1].InsecureSkipVerify {
+		t.Errorf("insecureSkipVerify should default to false: %+v", cfg.Clusters)
+	}
 	if cfg.KatoRunTimeout != 360*time.Second {
 		t.Errorf("timeout = %v", cfg.KatoRunTimeout)
 	}
@@ -76,6 +79,30 @@ func TestLoadMaxConcurrentRuns(t *testing.T) {
 		if _, err := Load(); err == nil {
 			t.Errorf("MAX_CONCURRENT_RUNS=%q should error", bad)
 		}
+	}
+}
+
+func TestLoadInsecureSkipVerify(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "id")
+	t.Setenv("LARK_APP_SECRET", "sec")
+	const body = `clusters:
+  - name: secure
+    url: https://kato.secure.svc:8443
+  - name: selfsigned
+    url: https://kato.selfsigned.svc:8443
+    insecureSkipVerify: true
+`
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, body))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Clusters[0].InsecureSkipVerify {
+		t.Errorf("cluster[0] insecureSkipVerify = true, want false (omitted)")
+	}
+	if !cfg.Clusters[1].InsecureSkipVerify {
+		t.Errorf("cluster[1] insecureSkipVerify = false, want true")
 	}
 }
 

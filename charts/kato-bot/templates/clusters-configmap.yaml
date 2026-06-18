@@ -13,4 +13,7 @@ data:
         {{- if .label }}
         label: {{ .label | quote }}
         {{- end }}
+        {{- if .insecureSkipVerify }}
+        insecureSkipVerify: true
+        {{- end }}
     {{- end }}

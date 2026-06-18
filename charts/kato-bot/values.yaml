@@ -10,10 +10,13 @@ image:
 larkBaseUrl: https://open.larksuite.com
 # -- List of kato clusters the bot can target. Each entry needs a unique name and the
 # in-cluster (or reachable) kato REST URL; label is the optional picker button text.
+# Set insecureSkipVerify: true to skip TLS cert verification for an https URL
+# (self-signed certs on a trusted network only; MITM-exposed).
 clusters:
   - name: default
     url: http://kato.kato.svc:8080
     # label: Default
+    # insecureSkipVerify: false
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
 katoRunTimeout: 360s
 # -- Lark SDK log verbosity (debug / info / warn / error).
