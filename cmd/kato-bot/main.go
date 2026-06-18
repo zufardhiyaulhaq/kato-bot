@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/config"
@@ -20,9 +21,15 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	katoClient := kato.New(cfg.KatoBaseURL, cfg.KatoRunTimeout)
 	renderer := lark.NewSender(cfg.LarkAppID, cfg.LarkAppSecret, cfg.LarkBaseURL)
-	c := &core.Core{Kato: katoClient, R: renderer}
+
+	registry := core.NewRegistry()
+	names := make([]string, 0, len(cfg.Clusters))
+	for _, cl := range cfg.Clusters {
+		registry.Add(core.Cluster{Name: cl.Name, Label: cl.Label}, kato.New(cl.URL, cfg.KatoRunTimeout))
+		names = append(names, cl.Name)
+	}
+	c := &core.Core{Clusters: registry, R: renderer}
 
 	adapter := &lark.Adapter{
 		AppID:         cfg.LarkAppID,
@@ -51,8 +58,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("kato-bot connecting to Lark; kato at %s (run timeout %s, domain %s)",
-		cfg.KatoBaseURL, cfg.KatoRunTimeout, cfg.LarkBaseURL)
+	log.Printf("kato-bot connecting to Lark; clusters=[%s] (run timeout %s, domain %s)",
+		strings.Join(names, ", "), cfg.KatoRunTimeout, cfg.LarkBaseURL)
 	if err := adapter.Start(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("lark adapter: %v", err)
 	}

@@ -14,16 +14,22 @@ Lark chat adapter for kato troubleshooting flows
 Lark group ──ws──> kato-bot ──REST──> kato (in-cluster)
 ```
 
-1. Message the bot → it shows a card listing kato UseCases. In a **direct message** any
-   text works; in a **group** @mention the bot (e.g. `@kato start`).
-2. Pick one → the card becomes a form of that UseCase's inputs.
-3. Submit → the card shows "running…", then the LLM summary kato produced.
+1. Message the bot → it shows a card listing the configured **clusters**. In a **direct
+   message** any text works; in a **group** @mention the bot (e.g. `@kato start`).
+2. Pick a cluster → the card lists that cluster's kato UseCases.
+3. Pick a UseCase → the card becomes a form of that UseCase's inputs.
+4. Submit → the card shows "running…", then the LLM summary kato produced.
 
 Cards are posted as a **threaded reply** to the triggering message, so each
 troubleshooting flow stays in its own thread and keeps the channel tidy.
 
 Access is governed entirely by Lark group membership; kato-bot adds no auth (kato is
 read-only). v1 supports Lark; Slack and Telegram are planned on the same core.
+
+Clusters are configured via the chart's `clusters:` list (rendered into a ConfigMap the
+bot reads). The bot must be able to reach each cluster's kato URL over the network —
+establishing that reachability (peering, a central management cluster, or per-cluster kato
+exposure) is the operator's responsibility.
 
 ## Configuration (env)
 
@@ -35,7 +41,7 @@ below set them on the Deployment):
 | `LARK_APP_ID` | (required) | Lark app id |
 | `LARK_APP_SECRET` | (required) | Lark app secret |
 | `LARK_BASE_URL` | `https://open.larksuite.com` | open-platform base URL (`https://open.larksuite.com` international, `https://open.feishu.cn` China) |
-| `KATO_BASE_URL` | `http://kato.kato.svc:8080` | kato REST base URL |
+| `KATO_CLUSTERS_FILE` | `/etc/kato-bot/clusters.yaml` | path to the YAML file listing clusters (name → kato URL); at least one required |
 | `KATO_RUN_TIMEOUT` | `360s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
 | `MAX_CONCURRENT_RUNS` | `4` | cap on in-flight kato runs before submits get a "busy" card |
@@ -88,10 +94,10 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for pod scheduling. |
+| clusters | list | `[{"name":"default","url":"http://kato.kato.svc:8080"}]` | List of kato clusters the bot can target. Each entry needs a unique name and the in-cluster (or reachable) kato REST URL; label is the optional picker button text. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato-bot"` | Container image repository. |
 | image.tag | string | `"v0.1.3"` | Image tag. Defaults to the chart appVersion when empty. |
-| katoBaseUrl | string | `"http://kato.kato.svc:8080"` | kato REST API base URL (in-cluster Service DNS). |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |

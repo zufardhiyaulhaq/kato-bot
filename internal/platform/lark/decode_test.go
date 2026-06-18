@@ -6,20 +6,38 @@ import (
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 )
 
-func TestDecodeMessageAlwaysListsUseCases(t *testing.T) {
+func TestDecodeMessageListsClusters(t *testing.T) {
 	in := decodeMessage("oc_chat", "om_user_msg")
-	lu, ok := in.(core.ListUseCases)
+	lc, ok := in.(core.ListClusters)
 	if !ok {
 		t.Fatalf("got %T", in)
 	}
-	if lu.Reply.ChatID != "oc_chat" || lu.Reply.InReplyTo != "om_user_msg" {
-		t.Fatalf("reply = %+v", lu.Reply)
+	if lc.Reply.ChatID != "oc_chat" || lc.Reply.InReplyTo != "om_user_msg" {
+		t.Fatalf("reply = %+v", lc.Reply)
+	}
+}
+
+func TestDecodeCardActionPickCluster(t *testing.T) {
+	raw := []byte(`{
+		"action": {"value": {"action":"pick_cluster","cluster":"prod"}},
+		"context": {"open_chat_id":"oc_1","open_message_id":"om_card"}
+	}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	pc, ok := in.(core.PickCluster)
+	if !ok {
+		t.Fatalf("got %T", in)
+	}
+	if pc.Reply.Cluster != "prod" || pc.Reply.MessageID != "om_card" {
+		t.Fatalf("pickcluster = %+v", pc)
 	}
 }
 
 func TestDecodeCardActionPick(t *testing.T) {
 	raw := []byte(`{
-		"action": {"value": {"action":"pick","usecase":"pod-crashloop"}},
+		"action": {"value": {"action":"pick","cluster":"prod","usecase":"pod-crashloop"}},
 		"context": {"open_chat_id":"oc_1","open_message_id":"om_card"}
 	}`)
 	in, err := decodeCardAction(raw)
@@ -30,7 +48,7 @@ func TestDecodeCardActionPick(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T", in)
 	}
-	if pick.Name != "pod-crashloop" || pick.Reply.MessageID != "om_card" || pick.Reply.ChatID != "oc_1" {
+	if pick.Name != "pod-crashloop" || pick.Reply.Cluster != "prod" || pick.Reply.MessageID != "om_card" {
 		t.Fatalf("pick = %+v", pick)
 	}
 }
@@ -38,7 +56,7 @@ func TestDecodeCardActionPick(t *testing.T) {
 func TestDecodeCardActionRun(t *testing.T) {
 	raw := []byte(`{
 		"action": {
-			"value": {"action":"run","usecase":"pod-crashloop"},
+			"value": {"action":"run","cluster":"prod","usecase":"pod-crashloop"},
 			"form_value": {"namespace":"payments","pod":"api-xyz"}
 		},
 		"context": {"open_chat_id":"oc_1","open_message_id":"om_card"}
@@ -51,11 +69,8 @@ func TestDecodeCardActionRun(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T", in)
 	}
-	if sub.Name != "pod-crashloop" || sub.Inputs["namespace"] != "payments" || sub.Inputs["pod"] != "api-xyz" {
+	if sub.Name != "pod-crashloop" || sub.Reply.Cluster != "prod" || sub.Inputs["namespace"] != "payments" {
 		t.Fatalf("submit = %+v", sub)
-	}
-	if sub.Reply.MessageID != "om_card" {
-		t.Fatalf("reply = %+v", sub.Reply)
 	}
 }
 

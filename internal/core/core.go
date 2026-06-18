@@ -12,8 +12,8 @@ import (
 // the only slow work (a validated run) is returned as a `deferred` thunk for the
 // adapter to run in a goroutine, preserving the platform's fast-ack requirement.
 type Core struct {
-	Kato KatoClient
-	R    Renderer
+	Clusters *Registry
+	R        Renderer
 }
 
 // Handle processes one intent. It returns a non-nil deferred ONLY for a validated
@@ -21,22 +21,37 @@ type Core struct {
 // A returned error is an internal/renderer failure the adapter should log.
 func (c *Core) Handle(ctx context.Context, in Intent) (deferred func(context.Context) error, err error) {
 	switch v := in.(type) {
-	case ListUseCases:
-		ucs, e := c.Kato.ListUseCases(ctx)
+	case ListClusters:
+		return nil, c.R.RenderClusterPicker(ctx, v.Reply, c.Clusters.List())
+
+	case PickCluster:
+		kc, ok := c.Clusters.Get(v.Reply.Cluster)
+		if !ok {
+			return nil, c.R.RenderError(ctx, v.Reply, unknownClusterMsg(v.Reply.Cluster))
+		}
+		ucs, e := kc.ListUseCases(ctx)
 		if e != nil {
 			return nil, c.R.RenderError(ctx, v.Reply, friendlyKatoError(e))
 		}
 		return nil, c.R.RenderPicker(ctx, v.Reply, ucs)
 
 	case PickUseCase:
-		ct, e := c.Kato.GetUseCase(ctx, v.Name)
+		kc, ok := c.Clusters.Get(v.Reply.Cluster)
+		if !ok {
+			return nil, c.R.RenderError(ctx, v.Reply, unknownClusterMsg(v.Reply.Cluster))
+		}
+		ct, e := kc.GetUseCase(ctx, v.Name)
 		if e != nil {
 			return nil, c.R.RenderError(ctx, v.Reply, friendlyKatoError(e))
 		}
 		return nil, c.R.RenderForm(ctx, v.Reply, ct, nil, "")
 
 	case SubmitForm:
-		ct, e := c.Kato.GetUseCase(ctx, v.Name)
+		kc, ok := c.Clusters.Get(v.Reply.Cluster)
+		if !ok {
+			return nil, c.R.RenderError(ctx, v.Reply, unknownClusterMsg(v.Reply.Cluster))
+		}
+		ct, e := kc.GetUseCase(ctx, v.Name)
 		if e != nil {
 			return nil, c.R.RenderError(ctx, v.Reply, friendlyKatoError(e))
 		}
@@ -49,11 +64,8 @@ func (c *Core) Handle(ctx context.Context, in Intent) (deferred func(context.Con
 		}
 		reply, name, inputs, contract := v.Reply, v.Name, v.Inputs, ct
 		return func(dctx context.Context) error {
-			res, runErr := c.Kato.Run(dctx, name, inputs)
+			res, runErr := kc.Run(dctx, name, inputs)
 			if runErr != nil {
-				// A 400 means kato rejected the inputs — send the user back to the
-				// form with the reason so they can fix and resubmit (spec: 400 → form
-				// error). Any other failure becomes a friendly result-card error.
 				var se HTTPStatusError
 				if errors.As(runErr, &se) && se.HTTPStatus() == 400 {
 					return c.R.RenderForm(dctx, reply, contract, inputs, friendlyKatoError(runErr))
@@ -66,6 +78,15 @@ func (c *Core) Handle(ctx context.Context, in Intent) (deferred func(context.Con
 	default:
 		return nil, fmt.Errorf("unknown intent %T", in)
 	}
+}
+
+// unknownClusterMsg is the friendly error when a card carries a cluster name that is no
+// longer in the registry (e.g. a stale card after the clusters config changed).
+func unknownClusterMsg(name string) string {
+	if name == "" {
+		return "no cluster selected — start over"
+	}
+	return "unknown cluster " + name + " — start over"
 }
 
 // friendlyKatoError turns a kato client error into a concise, user-facing message.

@@ -33,12 +33,16 @@ func (rd *Renderer) PatchCard(ctx context.Context, messageID, cardJSON string) e
 	return rd.S.Patch(ctx, messageID, cardJSON)
 }
 
+func (rd *Renderer) RenderClusterPicker(ctx context.Context, r core.Reply, clusters []core.Cluster) error {
+	return rd.emit(ctx, r, buildClusterPickerCard(clusters))
+}
+
 func (rd *Renderer) RenderPicker(ctx context.Context, r core.Reply, ucs []core.UseCase) error {
-	return rd.emit(ctx, r, buildPickerCard(ucs))
+	return rd.emit(ctx, r, buildPickerCard(r.Cluster, ucs))
 }
 
 func (rd *Renderer) RenderForm(ctx context.Context, r core.Reply, c core.Contract, prefill map[string]string, formErr string) error {
-	return rd.emit(ctx, r, buildFormCard(c, prefill, formErr))
+	return rd.emit(ctx, r, buildFormCard(r.Cluster, c, prefill, formErr))
 }
 
 func (rd *Renderer) RenderRunning(ctx context.Context, r core.Reply, useCase string, inputs map[string]string) error {
@@ -46,7 +50,7 @@ func (rd *Renderer) RenderRunning(ctx context.Context, r core.Reply, useCase str
 }
 
 func (rd *Renderer) RenderResult(ctx context.Context, r core.Reply, useCase string, inputs map[string]string, res core.RunResult) error {
-	return rd.emit(ctx, r, buildResultCard(useCase, res))
+	return rd.emit(ctx, r, buildResultCard(r.Cluster, useCase, res))
 }
 
 func (rd *Renderer) RenderError(ctx context.Context, r core.Reply, msg string) error {

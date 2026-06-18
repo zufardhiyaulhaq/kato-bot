@@ -46,14 +46,31 @@ func button2(text string, value map[string]any) map[string]any {
 	}
 }
 
+// buildClusterPickerCard lists each configured cluster with a Select button. The button
+// value carries the cluster name so the follow-up pick_cluster callback knows which kato
+// backend to target.
+func buildClusterPickerCard(clusters []core.Cluster) string {
+	elements := []any{markdown("☸️ **kato** — pick a cluster")}
+	for _, cl := range clusters {
+		label := cl.Label
+		if label == "" {
+			label = cl.Name
+		}
+		elements = append(elements, map[string]any{"tag": "hr"})
+		elements = append(elements, markdown("**"+label+"**"))
+		elements = append(elements, button2("Select ▸", map[string]any{"action": "pick_cluster", "cluster": cl.Name}))
+	}
+	return card2("kato", elements)
+}
+
 // buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note.
-func buildPickerCard(ucs []core.UseCase) string {
+func buildPickerCard(cluster string, ucs []core.UseCase) string {
 	elements := []any{markdown("🔧 **kato** — pick a troubleshooting flow")}
 	for _, uc := range ucs {
 		elements = append(elements, map[string]any{"tag": "hr"})
 		elements = append(elements, markdown(fmt.Sprintf("**%s**\n%s", uc.Name, uc.Description)))
 		if uc.Ready {
-			elements = append(elements, button2("Select ▸", map[string]any{"action": "pick", "usecase": uc.Name}))
+			elements = append(elements, button2("Select ▸", map[string]any{"action": "pick", "cluster": cluster, "usecase": uc.Name}))
 		} else {
 			elements = append(elements, markdown("_not ready (failed validation in cluster)_"))
 		}
@@ -70,8 +87,8 @@ func buildPickerCard(ucs []core.UseCase) string {
 // plus a `behaviors` callback (the legacy `action_type:"form_submit"` + `value` does
 // nothing). The behavior's value lands in the callback's action.value and the input
 // values in action.form_value, which decode.go reads.
-func buildFormCard(c core.Contract, prefill map[string]string, formErr string) string {
-	runValue := map[string]any{"action": "run", "usecase": c.Name}
+func buildFormCard(cluster string, c core.Contract, prefill map[string]string, formErr string) string {
+	runValue := map[string]any{"action": "run", "cluster": cluster, "usecase": c.Name}
 
 	// No declared inputs: there's nothing to fill, so skip the form container entirely
 	// and use a plain callback button — the exact button type that already works for the
@@ -151,7 +168,7 @@ func buildRunningCard(useCase string, inputs map[string]string) string {
 }
 
 // buildResultCard renders the final summary (or a friendly error) plus a Run-again button.
-func buildResultCard(useCase string, res core.RunResult) string {
+func buildResultCard(cluster, useCase string, res core.RunResult) string {
 	var elements []any
 	if res.Err != nil {
 		elements = []any{
@@ -176,7 +193,7 @@ func buildResultCard(useCase string, res core.RunResult) string {
 			markdown("_run: "+res.Run+"_"),
 		)
 	}
-	elements = append(elements, button2("↻ Run again", map[string]any{"action": "pick", "usecase": useCase}))
+	elements = append(elements, button2("↻ Run again", map[string]any{"action": "pick", "cluster": cluster, "usecase": useCase}))
 	return card2(useCase, elements)
 }
 

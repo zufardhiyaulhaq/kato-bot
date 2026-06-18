@@ -7,10 +7,10 @@ import (
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 )
 
-// decodeMessage maps any received user message to a ListUseCases intent (show the
+// decodeMessage maps any received user message to a ListClusters intent (show the cluster
 // picker). chatID is the message's chat; userMsgID is the message to reply to.
 func decodeMessage(chatID, userMsgID string) core.Intent {
-	return core.ListUseCases{Reply: core.Reply{ChatID: chatID, InReplyTo: userMsgID}}
+	return core.ListClusters{Reply: core.Reply{ChatID: chatID, InReplyTo: userMsgID}}
 }
 
 // cardActionPayload is the subset of Lark's card.action.trigger event we use. The
@@ -27,16 +27,21 @@ type cardActionPayload struct {
 	} `json:"context"`
 }
 
-// decodeCardAction parses a card.action.trigger payload into a PickUseCase or SubmitForm.
+// decodeCardAction parses a card.action.trigger payload into a PickCluster, PickUseCase,
+// or SubmitForm. The selected cluster (when present) is carried in every action value and
+// threaded into Reply.Cluster so the core can resolve the right kato backend.
 func decodeCardAction(raw []byte) (core.Intent, error) {
 	var p cardActionPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, fmt.Errorf("decode card action: %w", err)
 	}
-	reply := core.Reply{ChatID: p.Context.OpenChatID, MessageID: p.Context.OpenMessageID}
+	cluster, _ := p.Action.Value["cluster"].(string)
+	reply := core.Reply{ChatID: p.Context.OpenChatID, MessageID: p.Context.OpenMessageID, Cluster: cluster}
 	action, _ := p.Action.Value["action"].(string)
 	useCase, _ := p.Action.Value["usecase"].(string)
 	switch action {
+	case "pick_cluster":
+		return core.PickCluster{Reply: reply}, nil
 	case "pick":
 		return core.PickUseCase{Reply: reply, Name: useCase}, nil
 	case "run":

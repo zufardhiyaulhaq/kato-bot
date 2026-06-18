@@ -17,8 +17,28 @@ func asMap(t *testing.T, jsonStr string) map[string]any {
 	return m
 }
 
+func TestBuildClusterPickerCard(t *testing.T) {
+	card := buildClusterPickerCard([]core.Cluster{
+		{Name: "prod", Label: "Production"},
+		{Name: "staging"},
+	})
+	m := asMap(t, card)
+	if m["schema"] != "2.0" {
+		t.Errorf("expected schema 2.0, got %v", m["schema"])
+	}
+	if !strings.Contains(card, "Production") {
+		t.Error("missing cluster label")
+	}
+	if !strings.Contains(card, "staging") {
+		t.Error("missing cluster name fallback")
+	}
+	if !strings.Contains(card, `"action":"pick_cluster"`) || !strings.Contains(card, `"cluster":"prod"`) {
+		t.Error("missing pick_cluster action value")
+	}
+}
+
 func TestBuildPickerCard(t *testing.T) {
-	card := buildPickerCard([]core.UseCase{
+	card := buildPickerCard("prod", []core.UseCase{
 		{Name: "pod-crashloop", Description: "Diagnose crashloop", Ready: true},
 		{Name: "broken", Description: "x", Ready: false},
 	})
@@ -30,12 +50,14 @@ func TestBuildPickerCard(t *testing.T) {
 	if !ok || body["elements"] == nil {
 		t.Fatal("no body.elements")
 	}
-	// The card must mention each usecase name and carry a pick action value for the ready one.
 	if !strings.Contains(card, "pod-crashloop") {
 		t.Error("missing usecase name")
 	}
 	if !strings.Contains(card, `"action":"pick"`) || !strings.Contains(card, `"usecase":"pod-crashloop"`) {
 		t.Error("missing pick action value")
+	}
+	if !strings.Contains(card, `"cluster":"prod"`) {
+		t.Error("pick action must carry the cluster")
 	}
 }
 
@@ -43,7 +65,7 @@ func TestBuildFormCard(t *testing.T) {
 	c := core.Contract{Name: "pod-crashloop", Description: "d", Inputs: []core.InputDecl{
 		{Name: "namespace", Required: true}, {Name: "pod", Required: true},
 	}}
-	card := buildFormCard(c, map[string]string{"namespace": "payments"}, "required: pod")
+	card := buildFormCard("prod", c, map[string]string{"namespace": "payments"}, "required: pod")
 	if !strings.Contains(card, "namespace") || !strings.Contains(card, "pod") {
 		t.Error("missing input names")
 	}
@@ -56,7 +78,10 @@ func TestBuildFormCard(t *testing.T) {
 	if !strings.Contains(card, `"action":"run"`) || !strings.Contains(card, `"usecase":"pod-crashloop"`) {
 		t.Error("missing run action value")
 	}
-	asMap(t, card) // valid JSON
+	if !strings.Contains(card, `"cluster":"prod"`) {
+		t.Error("run action must carry the cluster")
+	}
+	asMap(t, card)
 }
 
 func TestBuildRunningCard(t *testing.T) {
@@ -71,7 +96,7 @@ func TestBuildRunningCard(t *testing.T) {
 }
 
 func TestBuildResultCardCompleted(t *testing.T) {
-	card := buildResultCard("pod-crashloop", core.RunResult{
+	card := buildResultCard("prod", "pod-crashloop", core.RunResult{
 		Run: "pod-crashloop-abc", Phase: "Completed", Summary: "It is OOMKilled.",
 	})
 	if !strings.Contains(card, "It is OOMKilled.") || !strings.Contains(card, "pod-crashloop-abc") {
@@ -83,11 +108,14 @@ func TestBuildResultCardCompleted(t *testing.T) {
 	if !strings.Contains(card, `"action":"pick"`) {
 		t.Error("missing Run again action")
 	}
+	if !strings.Contains(card, `"cluster":"prod"`) {
+		t.Error("run-again action must carry the cluster")
+	}
 	asMap(t, card)
 }
 
 func TestBuildResultCardFailedPhase(t *testing.T) {
-	card := buildResultCard("pod-crashloop", core.RunResult{
+	card := buildResultCard("prod", "pod-crashloop", core.RunResult{
 		Run: "pod-crashloop-abc", Phase: "Failed", Summary: "step errored",
 	})
 	if strings.Contains(card, "✅") {
@@ -100,7 +128,7 @@ func TestBuildResultCardFailedPhase(t *testing.T) {
 }
 
 func TestBuildResultCardError(t *testing.T) {
-	card := buildResultCard("uc", core.RunResult{Err: &core.RunError{Msg: "kato is busy"}})
+	card := buildResultCard("prod", "uc", core.RunResult{Err: &core.RunError{Msg: "kato is busy"}})
 	if !strings.Contains(card, "kato is busy") {
 		t.Error("error not shown")
 	}

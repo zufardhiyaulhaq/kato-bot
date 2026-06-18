@@ -2,7 +2,10 @@ module github.com/zufardhiyaulhaq/kato-bot
 
 go 1.24
 
-require github.com/larksuite/oapi-sdk-go/v3 v3.9.5
+require (
+	github.com/larksuite/oapi-sdk-go/v3 v3.9.5
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/gogo/protobuf v1.3.2 // indirect

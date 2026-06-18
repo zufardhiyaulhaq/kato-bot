@@ -42,6 +42,22 @@ func TestRenderPickerReplies(t *testing.T) {
 	}
 }
 
+func TestRenderClusterPickerReplies(t *testing.T) {
+	f := &fakeSender{}
+	r := &Renderer{S: f}
+	err := r.RenderClusterPicker(context.Background(),
+		core.Reply{ChatID: "oc", InReplyTo: "om_user"}, []core.Cluster{{Name: "prod"}})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if f.replyToMsgID != "om_user" {
+		t.Fatalf("reply to = %q", f.replyToMsgID)
+	}
+	if !strings.Contains(f.replyCard, `"action":"pick_cluster"`) {
+		t.Errorf("cluster picker not sent: %s", f.replyCard)
+	}
+}
+
 func TestRenderFormPatches(t *testing.T) {
 	f := &fakeSender{}
 	r := &Renderer{S: f}

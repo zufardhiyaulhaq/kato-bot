@@ -8,8 +8,12 @@ image:
 
 # -- Lark open-platform base URL. Lark international: https://open.larksuite.com; Feishu (China): https://open.feishu.cn.
 larkBaseUrl: https://open.larksuite.com
-# -- kato REST API base URL (in-cluster Service DNS).
-katoBaseUrl: http://kato.kato.svc:8080
+# -- List of kato clusters the bot can target. Each entry needs a unique name and the
+# in-cluster (or reachable) kato REST URL; label is the optional picker button text.
+clusters:
+  - name: default
+    url: http://kato.kato.svc:8080
+    # label: Default
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
 katoRunTimeout: 360s
 # -- Lark SDK log verbosity (debug / info / warn / error).

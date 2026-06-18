@@ -14,7 +14,13 @@ spec:
     metadata:
       labels:
         {{- include "kato-bot.labels" . | nindent 8 }}
+      annotations:
+        checksum/clusters: {{ include (print $.Template.BasePath "/clusters-configmap.yaml") . | sha256sum }}
     spec:
+      volumes:
+        - name: clusters
+          configMap:
+            name: {{ include "kato-bot.name" . }}-clusters
       containers:
         - name: kato-bot
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -27,14 +33,18 @@ spec:
           env:
             - name: LARK_BASE_URL
               value: {{ .Values.larkBaseUrl | quote }}
-            - name: KATO_BASE_URL
-              value: {{ .Values.katoBaseUrl | quote }}
+            - name: KATO_CLUSTERS_FILE
+              value: /etc/kato-bot/clusters.yaml
             - name: KATO_RUN_TIMEOUT
               value: {{ .Values.katoRunTimeout | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             - name: MAX_CONCURRENT_RUNS
               value: {{ .Values.maxConcurrentRuns | quote }}
+          volumeMounts:
+            - name: clusters
+              mountPath: /etc/kato-bot
+              readOnly: true
           ports:
             - name: health
               containerPort: 8080

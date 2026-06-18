@@ -15,20 +15,24 @@ import (
 // sending it, so the card-action handler can return it in the callback response.
 type captureRenderer struct{ card string }
 
-func (r *captureRenderer) RenderPicker(_ context.Context, _ core.Reply, ucs []core.UseCase) error {
-	r.card = buildPickerCard(ucs)
+func (r *captureRenderer) RenderClusterPicker(_ context.Context, _ core.Reply, clusters []core.Cluster) error {
+	r.card = buildClusterPickerCard(clusters)
 	return nil
 }
-func (r *captureRenderer) RenderForm(_ context.Context, _ core.Reply, c core.Contract, prefill map[string]string, formErr string) error {
-	r.card = buildFormCard(c, prefill, formErr)
+func (r *captureRenderer) RenderPicker(_ context.Context, rep core.Reply, ucs []core.UseCase) error {
+	r.card = buildPickerCard(rep.Cluster, ucs)
+	return nil
+}
+func (r *captureRenderer) RenderForm(_ context.Context, rep core.Reply, c core.Contract, prefill map[string]string, formErr string) error {
+	r.card = buildFormCard(rep.Cluster, c, prefill, formErr)
 	return nil
 }
 func (r *captureRenderer) RenderRunning(_ context.Context, _ core.Reply, uc string, in map[string]string) error {
 	r.card = buildRunningCard(uc, in)
 	return nil
 }
-func (r *captureRenderer) RenderResult(_ context.Context, _ core.Reply, uc string, in map[string]string, res core.RunResult) error {
-	r.card = buildResultCard(uc, res)
+func (r *captureRenderer) RenderResult(_ context.Context, rep core.Reply, uc string, in map[string]string, res core.RunResult) error {
+	r.card = buildResultCard(rep.Cluster, uc, res)
 	return nil
 }
 func (r *captureRenderer) RenderError(_ context.Context, _ core.Reply, msg string) error {
@@ -51,7 +55,9 @@ func cardResponse(cardJSON string) *callback.CardActionTriggerResponse {
 // replyOf extracts the Reply from any intent.
 func replyOf(in core.Intent) core.Reply {
 	switch v := in.(type) {
-	case core.ListUseCases:
+	case core.ListClusters:
+		return v.Reply
+	case core.PickCluster:
 		return v.Reply
 	case core.PickUseCase:
 		return v.Reply
@@ -67,7 +73,7 @@ func replyOf(in core.Intent) core.Reply {
 // — after the response window — its result is patched onto the same card.
 func (a *Adapter) handleCardAction(ctx context.Context, in core.Intent, reply core.Reply) *callback.CardActionTriggerResponse {
 	cap := &captureRenderer{}
-	tmp := &core.Core{Kato: a.Core.Kato, R: cap}
+	tmp := &core.Core{Clusters: a.Core.Clusters, R: cap}
 	deferred, err := tmp.Handle(ctx, in)
 	if err != nil {
 		log.Printf("handle %T: %v", in, err)

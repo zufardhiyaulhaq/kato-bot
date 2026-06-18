@@ -10,6 +10,7 @@ type Reply struct {
 	ChatID    string
 	MessageID string // the bot card's own id, for patching; empty before the first card
 	InReplyTo string // user's message id to reply to (set only for the initial picker)
+	Cluster   string // selected cluster name; empty for the initial cluster-picker step
 }
 
 // UseCase is one kato UseCase summary (from GET /usecases).
@@ -52,6 +53,7 @@ type KatoClient interface {
 
 // Renderer is the outbound port: turn semantic state into platform cards.
 type Renderer interface {
+	RenderClusterPicker(ctx context.Context, r Reply, clusters []Cluster) error
 	RenderPicker(ctx context.Context, r Reply, ucs []UseCase) error
 	RenderForm(ctx context.Context, r Reply, c Contract, prefill map[string]string, formErr string) error
 	RenderRunning(ctx context.Context, r Reply, useCase string, inputs map[string]string) error
@@ -62,7 +64,8 @@ type Renderer interface {
 // Intent is an inbound, decoded user action. Adapters produce these.
 type Intent interface{ isIntent() }
 
-type ListUseCases struct{ Reply Reply }
+type ListClusters struct{ Reply Reply }
+type PickCluster struct{ Reply Reply } // selected cluster is in Reply.Cluster
 type PickUseCase struct {
 	Reply Reply
 	Name  string
@@ -73,7 +76,8 @@ type SubmitForm struct {
 	Inputs map[string]string
 }
 
-func (ListUseCases) isIntent() {}
+func (ListClusters) isIntent() {}
+func (PickCluster) isIntent()  {}
 func (PickUseCase) isIntent()  {}
 func (SubmitForm) isIntent()   {}
 

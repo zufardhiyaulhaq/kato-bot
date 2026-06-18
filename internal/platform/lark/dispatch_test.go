@@ -92,12 +92,12 @@ func TestCardActionSemaphoreCapsRuns(t *testing.T) {
 		release:  make(chan struct{}),
 	}
 	a := &Adapter{
-		Core:          &core.Core{Kato: bk, R: &captureRenderer{}},
+		Core:          &core.Core{Clusters: regOf("c1", bk), R: &captureRenderer{}},
 		R:             &Renderer{S: &fakeSender{}},
 		RunTimeout:    5 * time.Second,
 		MaxConcurrent: 1,
 	}
-	submit := core.SubmitForm{Reply: core.Reply{MessageID: "card1"}, Name: "uc", Inputs: map[string]string{}}
+	submit := core.SubmitForm{Reply: core.Reply{MessageID: "card1", Cluster: "c1"}, Name: "uc", Inputs: map[string]string{}}
 
 	// First submit: returns a running-card response and spawns the run (which blocks).
 	resp1 := a.handleCardAction(context.Background(), submit, submit.Reply)
@@ -127,4 +127,11 @@ func TestCardActionSemaphoreCapsRuns(t *testing.T) {
 
 	// Release the first run so its goroutine completes and frees the slot cleanly.
 	close(bk.release)
+}
+
+// regOf builds a one-cluster registry for tests.
+func regOf(name string, k core.KatoClient) *core.Registry {
+	r := core.NewRegistry()
+	r.Add(core.Cluster{Name: name}, k)
+	return r
 }
