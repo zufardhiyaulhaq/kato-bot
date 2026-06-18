@@ -59,6 +59,9 @@ func TestBuildPickerCard(t *testing.T) {
 	if !strings.Contains(card, `"cluster":"prod"`) {
 		t.Error("pick action must carry the cluster")
 	}
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("picker must show the cluster context line")
+	}
 }
 
 func TestBuildFormCard(t *testing.T) {
@@ -81,22 +84,66 @@ func TestBuildFormCard(t *testing.T) {
 	if !strings.Contains(card, `"cluster":"prod"`) {
 		t.Error("run action must carry the cluster")
 	}
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("form must show the cluster context line")
+	}
+	asMap(t, card)
+}
+
+func TestBuildFormCardNoInputs(t *testing.T) {
+	// No declared inputs takes the non-form branch; it must still show the cluster line.
+	c := core.Contract{Name: "node-health", Description: "d", Inputs: nil}
+	card := buildFormCard("prod", c, nil, "")
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("no-input form must show the cluster context line")
+	}
+	if !strings.Contains(card, "No inputs required") {
+		t.Error("no-input form must show the no-inputs note")
+	}
+	asMap(t, card)
+}
+
+func TestBuildFormCardNoInputsWithError(t *testing.T) {
+	// No declared inputs + a form error: the error banner and the cluster line must
+	// both render on the non-form branch.
+	c := core.Contract{Name: "node-health", Description: "d", Inputs: nil}
+	card := buildFormCard("prod", c, nil, "kato rejected the request")
+	if !strings.Contains(card, "kato rejected the request") {
+		t.Error("no-input form must show the form error banner")
+	}
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("no-input form with error must still show the cluster context line")
+	}
 	asMap(t, card)
 }
 
 func TestBuildRunningCard(t *testing.T) {
-	card := buildRunningCard("pod-crashloop", map[string]string{"namespace": "payments"})
+	card := buildRunningCard("cluster-a", "pod-crashloop", map[string]string{"namespace": "payments"})
 	if !strings.Contains(card, "Running") || !strings.Contains(card, "pod-crashloop") {
 		t.Error("running card content")
 	}
-	if !strings.Contains(card, "namespace=payments") {
+	if !strings.Contains(card, "Cluster: cluster-a") {
+		t.Error("missing cluster line")
+	}
+	if !strings.Contains(card, "Inputs:") || !strings.Contains(card, "namespace=payments") {
 		t.Error("missing inputs line")
 	}
 	asMap(t, card)
 }
 
+func TestBuildRunningCardNoInputs(t *testing.T) {
+	card := buildRunningCard("cluster-a", "pod-crashloop", map[string]string{})
+	if !strings.Contains(card, "Cluster: cluster-a") {
+		t.Error("running card must show the cluster line even with no inputs")
+	}
+	if strings.Contains(card, "Inputs:") {
+		t.Error("running card must not render an Inputs line when there are no inputs")
+	}
+	asMap(t, card)
+}
+
 func TestBuildResultCardCompleted(t *testing.T) {
-	card := buildResultCard("prod", "pod-crashloop", core.RunResult{
+	card := buildResultCard("prod", "pod-crashloop", map[string]string{"namespace": "payments"}, core.RunResult{
 		Run: "pod-crashloop-abc", Phase: "Completed", Summary: "It is OOMKilled.",
 	})
 	if !strings.Contains(card, "It is OOMKilled.") || !strings.Contains(card, "pod-crashloop-abc") {
@@ -104,6 +151,12 @@ func TestBuildResultCardCompleted(t *testing.T) {
 	}
 	if !strings.Contains(card, "✅") {
 		t.Error("completed phase should show a green check")
+	}
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("result card must show the cluster line")
+	}
+	if !strings.Contains(card, "namespace=payments") {
+		t.Error("result card must show the inputs line")
 	}
 	if !strings.Contains(card, `"action":"pick"`) {
 		t.Error("missing Run again action")
@@ -115,7 +168,7 @@ func TestBuildResultCardCompleted(t *testing.T) {
 }
 
 func TestBuildResultCardFailedPhase(t *testing.T) {
-	card := buildResultCard("prod", "pod-crashloop", core.RunResult{
+	card := buildResultCard("prod", "pod-crashloop", map[string]string{"namespace": "payments"}, core.RunResult{
 		Run: "pod-crashloop-abc", Phase: "Failed", Summary: "step errored",
 	})
 	if strings.Contains(card, "✅") {
@@ -124,13 +177,65 @@ func TestBuildResultCardFailedPhase(t *testing.T) {
 	if !strings.Contains(card, "❌") || !strings.Contains(card, "Failed") {
 		t.Error("failed phase should show a red cross and the phase")
 	}
+	if !strings.Contains(card, "Cluster: prod") || !strings.Contains(card, "namespace=payments") {
+		t.Error("failed-phase result must show cluster + inputs")
+	}
 	asMap(t, card)
 }
 
 func TestBuildResultCardError(t *testing.T) {
-	card := buildResultCard("prod", "uc", core.RunResult{Err: &core.RunError{Msg: "kato is busy"}})
+	card := buildResultCard("prod", "uc", map[string]string{"namespace": "payments"}, core.RunResult{Err: &core.RunError{Msg: "kato is busy"}})
 	if !strings.Contains(card, "kato is busy") {
 		t.Error("error not shown")
 	}
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("error result must still show the cluster line")
+	}
+	if !strings.Contains(card, "namespace=payments") {
+		t.Error("error result must still show the inputs line")
+	}
 	asMap(t, card)
+}
+
+func TestBuildResultCardNoInputs(t *testing.T) {
+	card := buildResultCard("prod", "uc", map[string]string{}, core.RunResult{
+		Run: "uc-1", Phase: "Completed", Summary: "ok",
+	})
+	if !strings.Contains(card, "Cluster: prod") {
+		t.Error("result card must show the cluster line with no inputs")
+	}
+	if strings.Contains(card, "Inputs:") {
+		t.Error("result card must not render an Inputs line when there are no inputs")
+	}
+	asMap(t, card)
+}
+
+func TestContextLines(t *testing.T) {
+	// nil inputs: cluster line only, no Inputs line.
+	only := contextLines("cluster-a", nil)
+	if len(only) != 1 {
+		t.Fatalf("nil inputs: want 1 element, got %d", len(only))
+	}
+	js := jsonStr(only)
+	if !strings.Contains(js, "Cluster: cluster-a") {
+		t.Errorf("missing cluster line: %s", js)
+	}
+	if strings.Contains(js, "Inputs:") {
+		t.Errorf("nil inputs must not render an Inputs line: %s", js)
+	}
+
+	// empty map behaves like nil.
+	if len(contextLines("c", map[string]string{})) != 1 {
+		t.Error("empty inputs map must not render an Inputs line")
+	}
+
+	// non-empty inputs: cluster line + inputs line.
+	both := contextLines("cluster-a", map[string]string{"namespace": "prod"})
+	if len(both) != 2 {
+		t.Fatalf("with inputs: want 2 elements, got %d", len(both))
+	}
+	js2 := jsonStr(both)
+	if !strings.Contains(js2, "Cluster: cluster-a") || !strings.Contains(js2, "namespace=prod") {
+		t.Errorf("with inputs must render cluster + inputs: %s", js2)
+	}
 }

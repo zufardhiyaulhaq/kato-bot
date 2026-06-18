@@ -66,6 +66,7 @@ func buildClusterPickerCard(clusters []core.Cluster) string {
 // buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note.
 func buildPickerCard(cluster string, ucs []core.UseCase) string {
 	elements := []any{markdown("🔧 **kato** — pick a troubleshooting flow")}
+	elements = append(elements, contextLines(cluster, nil)...)
 	for _, uc := range ucs {
 		elements = append(elements, map[string]any{"tag": "hr"})
 		elements = append(elements, markdown(fmt.Sprintf("**%s**\n%s", uc.Name, uc.Description)))
@@ -98,8 +99,9 @@ func buildFormCard(cluster string, c core.Contract, prefill map[string]string, f
 		if formErr != "" {
 			elems = append(elems, markdown("⚠️ "+formErr))
 		}
+		elems = append(elems, markdown(fmt.Sprintf("🔧 **%s**\n%s", c.Name, c.Description)))
+		elems = append(elems, contextLines(cluster, nil)...)
 		elems = append(elems,
-			markdown(fmt.Sprintf("🔧 **%s**\n%s", c.Name, c.Description)),
 			markdown("_No inputs required — click Run._"),
 			button2("▶ Run troubleshoot", runValue),
 		)
@@ -111,6 +113,7 @@ func buildFormCard(cluster string, c core.Contract, prefill map[string]string, f
 		formElems = append(formElems, markdown("⚠️ "+formErr))
 	}
 	formElems = append(formElems, markdown(fmt.Sprintf("🔧 **%s**\n%s", c.Name, c.Description)))
+	formElems = append(formElems, contextLines(cluster, nil)...)
 	for _, in := range c.Inputs {
 		label := in.Name
 		if in.Required {
@@ -158,23 +161,33 @@ func kvLine(inputs map[string]string) string {
 	return strings.Join(parts, "  ")
 }
 
+// contextLines renders the shared "which cluster / what inputs" block used by the picker,
+// form, running, and result cards. The cluster line is always present; the inputs line is
+// included only when inputs is non-empty (a nil or empty map renders no inputs line).
+func contextLines(cluster string, inputs map[string]string) []any {
+	lines := []any{markdown("☰ Cluster: " + cluster)}
+	if len(inputs) > 0 {
+		lines = append(lines, markdown("☰ Inputs: "+kvLine(inputs)))
+	}
+	return lines
+}
+
 // buildRunningCard is the immediate ack repaint shown while kato runs.
-func buildRunningCard(useCase string, inputs map[string]string) string {
-	return card2("kato", []any{
-		markdown(fmt.Sprintf("⏳ **Running %s…**", useCase)),
-		markdown(kvLine(inputs)),
-		markdown("_This can take up to ~30s while kato runs the checks and summarizes._"),
-	})
+func buildRunningCard(cluster, useCase string, inputs map[string]string) string {
+	elements := []any{markdown(fmt.Sprintf("⏳ **Running %s…**", useCase))}
+	elements = append(elements, contextLines(cluster, inputs)...)
+	elements = append(elements, markdown("_This can take up to ~30s while kato runs the checks and summarizes._"))
+	return card2("kato", elements)
 }
 
 // buildResultCard renders the final summary (or a friendly error) plus a Run-again button.
-func buildResultCard(cluster, useCase string, res core.RunResult) string {
+// The cluster + inputs context block appears on both the success and error branches.
+func buildResultCard(cluster, useCase string, inputs map[string]string, res core.RunResult) string {
 	var elements []any
 	if res.Err != nil {
-		elements = []any{
-			markdown(fmt.Sprintf("❌ **%s — could not run**", useCase)),
-			markdown(res.Err.Error()),
-		}
+		elements = []any{markdown(fmt.Sprintf("❌ **%s — could not run**", useCase))}
+		elements = append(elements, contextLines(cluster, inputs)...)
+		elements = append(elements, markdown(res.Err.Error()))
 	} else {
 		// Phase icon: kato reports "Completed" on success; anything else (e.g. "Failed") is not green.
 		icon := "✅"
@@ -183,6 +196,7 @@ func buildResultCard(cluster, useCase string, res core.RunResult) string {
 		}
 		head := icon + " **" + useCase + " — " + res.Phase + "**"
 		elements = []any{markdown(head)}
+		elements = append(elements, contextLines(cluster, inputs)...)
 		if res.Warning != "" {
 			elements = append(elements, markdown("⚠️ "+res.Warning))
 		}

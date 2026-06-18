@@ -27,12 +27,12 @@ func (r *captureRenderer) RenderForm(_ context.Context, rep core.Reply, c core.C
 	r.card = buildFormCard(rep.Cluster, c, prefill, formErr)
 	return nil
 }
-func (r *captureRenderer) RenderRunning(_ context.Context, _ core.Reply, uc string, in map[string]string) error {
-	r.card = buildRunningCard(uc, in)
+func (r *captureRenderer) RenderRunning(_ context.Context, rep core.Reply, uc string, in map[string]string) error {
+	r.card = buildRunningCard(rep.Cluster, uc, in)
 	return nil
 }
 func (r *captureRenderer) RenderResult(_ context.Context, rep core.Reply, uc string, in map[string]string, res core.RunResult) error {
-	r.card = buildResultCard(rep.Cluster, uc, res)
+	r.card = buildResultCard(rep.Cluster, uc, in, res)
 	return nil
 }
 func (r *captureRenderer) RenderError(_ context.Context, _ core.Reply, msg string) error {

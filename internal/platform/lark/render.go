@@ -46,11 +46,11 @@ func (rd *Renderer) RenderForm(ctx context.Context, r core.Reply, c core.Contrac
 }
 
 func (rd *Renderer) RenderRunning(ctx context.Context, r core.Reply, useCase string, inputs map[string]string) error {
-	return rd.emit(ctx, r, buildRunningCard(useCase, inputs))
+	return rd.emit(ctx, r, buildRunningCard(r.Cluster, useCase, inputs))
 }
 
 func (rd *Renderer) RenderResult(ctx context.Context, r core.Reply, useCase string, inputs map[string]string, res core.RunResult) error {
-	return rd.emit(ctx, r, buildResultCard(r.Cluster, useCase, res))
+	return rd.emit(ctx, r, buildResultCard(r.Cluster, useCase, inputs, res))
 }
 
 func (rd *Renderer) RenderError(ctx context.Context, r core.Reply, msg string) error {

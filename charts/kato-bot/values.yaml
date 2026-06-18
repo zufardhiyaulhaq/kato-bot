@@ -2,7 +2,7 @@ image:
   # -- Container image repository.
   repository: ghcr.io/zufardhiyaulhaq/kato-bot
   # -- Image tag. Defaults to the chart appVersion when empty.
-  tag: "v0.1.4"
+  tag: "v0.1.5"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
