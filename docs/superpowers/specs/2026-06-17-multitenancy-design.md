@@ -1,4 +1,5 @@
 # kato-bot: multi-cluster (multitenancy) support
+{% raw %}
 
 **Status:** Approved (design)
 
@@ -222,3 +223,4 @@ is now resolved from the registry by cluster name.
 - Dynamic/hot reload of the clusters list (a config change rolls the Deployment via the
   ConfigMap checksum).
 - Federated/broker topologies (T3) and separate-identity bots (T2).
+{% endraw %}

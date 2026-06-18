@@ -1,4 +1,5 @@
 # Multi-cluster (multitenancy) Implementation Plan
+{% raw %}
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1681,3 +1682,4 @@ Expected: all Go packages PASS; `helm lint` reports 0 failures. **Do not commit*
 **2. Placeholder scan:** No TBD/TODO; every code step shows complete code. ✅
 
 **3. Type consistency:** `Registry` (`NewRegistry`/`Add`/`List`/`Get`), `Cluster{Name,Label}`, `Reply.Cluster`, `Core.Clusters`, intents `ListClusters`/`PickCluster`/`PickUseCase`/`SubmitForm`, `RenderClusterPicker`, builders `buildClusterPickerCard(clusters)` / `buildPickerCard(cluster, ucs)` / `buildFormCard(cluster, c, prefill, formErr)` / `buildResultCard(cluster, useCase, res)`, config `ClusterConfig{Name,URL,Label}` / `loadClusters` / `KATO_CLUSTERS_FILE` — all consistent across tasks. ✅
+{% endraw %}
