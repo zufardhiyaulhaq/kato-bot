@@ -87,7 +87,9 @@ func TestRunCompleted(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/usecases/pod-crashloop/run" {
 			t.Errorf("%s %s", r.Method, r.URL.Path)
 		}
-		var req struct{ Inputs map[string]string `json:"inputs"` }
+		var req struct {
+			Inputs map[string]string `json:"inputs"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode request body: %v", err)
 		}

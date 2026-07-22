@@ -9,9 +9,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/zufardhiyaulhaq/kato-bot/internal/api"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/config"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/kato"
+	mcpserver "github.com/zufardhiyaulhaq/kato-bot/internal/mcp"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/platform/lark"
 )
 
@@ -24,9 +27,13 @@ func main() {
 	renderer := lark.NewSender(cfg.LarkAppID, cfg.LarkAppSecret, cfg.LarkBaseURL)
 
 	registry := core.NewRegistry()
+	gw := gateway.New()
 	names := make([]string, 0, len(cfg.Clusters))
 	for _, cl := range cfg.Clusters {
-		registry.Add(core.Cluster{Name: cl.Name, Label: cl.Label}, kato.New(cl.URL, cfg.KatoRunTimeout, cl.InsecureSkipVerify))
+		kc := kato.New(cl.URL, cfg.KatoRunTimeout, cl.InsecureSkipVerify)
+		c := core.Cluster{Name: cl.Name, Label: cl.Label}
+		registry.Add(c, kc)
+		gw.Add(c, kc)
 		names = append(names, cl.Name)
 	}
 	c := &core.Core{Clusters: registry, R: renderer}
@@ -54,6 +61,20 @@ func main() {
 			log.Fatalf("health server on %s: %v", cfg.HealthAddr, err)
 		}
 	}()
+
+	// MCP + REST proxy listener (API_ADDR; empty = disabled). Serves the MCP
+	// streamable-HTTP endpoint at /mcp and the cluster-prefixed REST proxy.
+	if cfg.APIAddr != "" {
+		apiMux := http.NewServeMux()
+		apiMux.Handle("/mcp", mcpserver.Handler(mcpserver.NewServer(gw)))
+		api.Register(apiMux, gw)
+		go func() {
+			log.Printf("api server (mcp + rest proxy) on %s", cfg.APIAddr)
+			if err := http.ListenAndServe(cfg.APIAddr, apiMux); err != nil {
+				log.Fatalf("api server on %s: %v", cfg.APIAddr, err)
+			}
+		}()
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -1,0 +1,17 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kato-bot.name" . }}
+  labels:
+    {{- include "kato-bot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "kato-bot.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: api
+      port: 9090
+      targetPort: api
+{{- end }}

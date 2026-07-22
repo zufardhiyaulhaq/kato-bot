@@ -1,0 +1,186 @@
+// Package mcp is kato-bot's MCP front door: 8 tools over the gateway,
+// served via streamable HTTP. Tool results carry kato's JSON verbatim as
+// text; failures surface as tool errors with the gateway's message.
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/url"
+	"time"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+)
+
+// serverName/serverVersion identify kato-bot to MCP clients.
+const (
+	serverName    = "kato-bot"
+	serverVersion = "0.1.5"
+)
+
+type listUseCasesIn struct {
+	Cluster string `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+}
+type getUseCaseIn struct {
+	Cluster string `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+	UseCase string `json:"usecase" jsonschema:"use case name (discover via list_usecases)"`
+}
+type runUseCaseIn struct {
+	Cluster        string            `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+	UseCase        string            `json:"usecase" jsonschema:"use case name (discover via list_usecases)"`
+	Inputs         map[string]string `json:"inputs,omitempty" jsonschema:"use case inputs; all values are strings"`
+	IncludeOutputs bool              `json:"include_outputs,omitempty" jsonschema:"include per-step raw outputs in the response (default false)"`
+}
+type listMethodsIn struct {
+	Cluster string `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+}
+type runMethodIn struct {
+	Cluster string            `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+	Method  string            `json:"method" jsonschema:"method name (discover via list_methods)"`
+	Params  map[string]string `json:"params,omitempty" jsonschema:"method params; all values are strings"`
+}
+type listRunsIn struct {
+	Cluster string `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+	UseCase string `json:"usecase,omitempty" jsonschema:"optional: only runs of this use case"`
+}
+type getRunIn struct {
+	Cluster string `json:"cluster" jsonschema:"cluster name (discover via list_clusters)"`
+	Run     string `json:"run" jsonschema:"run name (from run_usecase's run field or list_runs)"`
+}
+
+// NewServer builds the MCP server with all 8 tools registered over g.
+func NewServer(g *gateway.Gateway) *sdkmcp.Server {
+	s := sdkmcp.NewServer(&sdkmcp.Implementation{Name: serverName, Version: serverVersion}, nil)
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "list_clusters",
+		Description: "List the configured kato clusters (name + label). Call this first: every other tool needs a cluster name.",
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest, _ any) (*sdkmcp.CallToolResult, any, error) {
+		return textResult(g.ClustersJSON()), nil, nil
+	})
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "list_usecases",
+		Description: "List a cluster's kato troubleshooting use cases (name, description, declared inputs, ready).",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in listUseCasesIn) (json.RawMessage, error) {
+		return cl.RawListUseCases(ctx)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "get_usecase",
+		Description: "Get one use case's contract: description and declared inputs (name, required, default).",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in getUseCaseIn) (json.RawMessage, error) {
+		return cl.RawGetUseCase(ctx, in.UseCase)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "run_usecase",
+		Description: "Execute a kato use case. SYNCHRONOUS AND SLOW: kato runs every step and writes an LLM summary before responding (tens of seconds to minutes). Returns run name, phase, summary, warning.",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in runUseCaseIn) (json.RawMessage, error) {
+		body, err := json.Marshal(map[string]any{"inputs": nonNil(in.Inputs)})
+		if err != nil {
+			return nil, err
+		}
+		q := "includeOutputs=false"
+		if in.IncludeOutputs {
+			q = "includeOutputs=true"
+		}
+		return cl.RawRunUseCase(ctx, in.UseCase, q, body)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "list_methods",
+		Description: "List kato's built-in read-only check methods with their params and output fields. Use before run_method to discover a method's params.",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in listMethodsIn) (json.RawMessage, error) {
+		return cl.RawListMethods(ctx)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "run_method",
+		Description: "Execute one kato method directly — a fast stateless probe (no run persisted, no LLM). Returns outcome (completed|failed), outputs, and error; a failed outcome is a finding, not a transport failure.",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in runMethodIn) (json.RawMessage, error) {
+		body, err := json.Marshal(map[string]any{"params": nonNil(in.Params)})
+		if err != nil {
+			return nil, err
+		}
+		return cl.RawRunMethod(ctx, in.Method, body)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "list_runs",
+		Description: "List past kato runs (newest first), optionally filtered by use case.",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in listRunsIn) (json.RawMessage, error) {
+		q := ""
+		if in.UseCase != "" {
+			q = "usecase=" + url.QueryEscape(in.UseCase)
+		}
+		return cl.RawListRuns(ctx, q)
+	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "get_run",
+		Description: "Get one past run's full audit record (per-step outputs, summary, timings).",
+	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in getRunIn) (json.RawMessage, error) {
+		return cl.RawGetRun(ctx, in.Run)
+	}))
+
+	return s
+}
+
+// Handler serves s over streamable HTTP (mounted at /mcp by main).
+func Handler(s *sdkmcp.Server) http.Handler {
+	return sdkmcp.NewStreamableHTTPHandler(
+		func(*http.Request) *sdkmcp.Server { return s },
+		&sdkmcp.StreamableHTTPOptions{
+			// This listener is always-on and unauthenticated; a client that
+			// connects and vanishes (crashed agent, dropped port-forward,
+			// stray curl) must not leak its session for the pod's lifetime.
+			SessionTimeout: 30 * time.Minute,
+		},
+	)
+}
+
+// clusterCarrier lets proxyTool read the cluster field off any input struct.
+type clusterCarrier interface{ clusterName() string }
+
+func (i listUseCasesIn) clusterName() string { return i.Cluster }
+func (i getUseCaseIn) clusterName() string   { return i.Cluster }
+func (i runUseCaseIn) clusterName() string   { return i.Cluster }
+func (i listMethodsIn) clusterName() string  { return i.Cluster }
+func (i runMethodIn) clusterName() string    { return i.Cluster }
+func (i listRunsIn) clusterName() string     { return i.Cluster }
+func (i getRunIn) clusterName() string       { return i.Cluster }
+
+// proxyTool resolves the cluster and adapts a gateway call into an SDK tool
+// handler. A returned error becomes an MCP tool error (IsError), which is
+// exactly the spec's mapping for unknown clusters and upstream failures.
+func proxyTool[In clusterCarrier](g *gateway.Gateway, call func(ctx context.Context, cl gateway.Client, in In) (json.RawMessage, error)) sdkmcp.ToolHandlerFor[In, any] {
+	return func(ctx context.Context, _ *sdkmcp.CallToolRequest, in In) (*sdkmcp.CallToolResult, any, error) {
+		cl, ok := g.Get(in.clusterName())
+		if !ok {
+			return nil, nil, gateway.UnknownCluster(in.clusterName())
+		}
+		raw, err := call(ctx, cl, in)
+		if err != nil {
+			return nil, nil, gateway.Normalize(in.clusterName(), err)
+		}
+		return textResult(raw), nil, nil
+	}
+}
+
+func textResult(raw []byte) *sdkmcp.CallToolResult {
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: string(raw)}},
+	}
+}
+
+// nonNil normalizes a nil map to empty so kato receives {"inputs":{}} not {"inputs":null}.
+func nonNil(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}

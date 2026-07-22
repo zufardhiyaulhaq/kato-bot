@@ -41,6 +41,8 @@ spec:
               value: {{ .Values.logLevel | quote }}
             - name: MAX_CONCURRENT_RUNS
               value: {{ .Values.maxConcurrentRuns | quote }}
+            - name: API_ADDR
+              value: {{ .Values.api.enabled | ternary ":9090" "" | quote }}
           volumeMounts:
             - name: clusters
               mountPath: /etc/kato-bot
@@ -48,6 +50,10 @@ spec:
           ports:
             - name: health
               containerPort: 8080
+            {{- if .Values.api.enabled }}
+            - name: api
+              containerPort: 9090
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

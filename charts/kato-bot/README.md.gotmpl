@@ -30,6 +30,28 @@ bot reads). The bot must be able to reach each cluster's kato URL over the netwo
 establishing that reachability (peering, a central management cluster, or per-cluster kato
 exposure) is the operator's responsibility.
 
+## MCP server + REST proxy
+
+kato-bot also exposes its multi-cluster aggregation programmatically on port
+9090 (value `api.enabled`, default on):
+
+- **MCP** (streamable HTTP) at `/mcp` — tools: `list_clusters`,
+  `list_usecases`, `get_usecase`, `run_usecase`, `list_methods`, `run_method`,
+  `list_runs`, `get_run`. Every tool takes `cluster` (from `list_clusters`).
+- **REST proxy**: kato's API prefixed by cluster —
+  `GET /api/v1/clusters`, then `/api/v1/clusters/{cluster}/usecases[...]`,
+  `/methods[...]`, `/runs[...]` — requests and responses pass through verbatim.
+
+No auth (same stance as kato): network reach is the boundary. Local use:
+
+```console
+kubectl -n kato port-forward svc/kato-bot 9090
+claude mcp add --transport http kato http://localhost:9090/mcp
+```
+
+`run_method` needs kato ≥ the version that ships `POST /api/v1/methods/{name}/run`;
+against older katos the tool surfaces kato's 404 verbatim.
+
 ## Configuration (env)
 
 The container is configured entirely through environment variables (the Helm values
@@ -45,6 +67,7 @@ below set them on the Deployment):
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
 | `MAX_CONCURRENT_RUNS` | `4` | cap on in-flight kato runs before submits get a "busy" card |
 | `HEALTH_ADDR` | `:8080` | address for the `/healthz` + `/readyz` probe server |
+| `API_ADDR` | `:9090` | MCP + REST proxy listen address (`/mcp` + `/api/v1/clusters/...`); empty string disables |
 
 To run locally, copy `.env.example` to `.env`, fill it in, and `set -a; source .env; set +a`
 before `go run ./cmd/kato-bot` (the binary reads the environment; it does not auto-load `.env`).

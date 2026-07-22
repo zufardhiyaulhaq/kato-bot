@@ -31,6 +31,8 @@ type Config struct {
 	LogLevel          string
 	MaxConcurrentRuns int
 	LarkBaseURL       string
+	// APIAddr is the MCP + REST proxy listen address; empty disables the listener.
+	APIAddr string
 }
 
 // Load reads config from env, applying defaults. LARK_APP_ID and LARK_APP_SECRET are
@@ -72,6 +74,14 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("MAX_CONCURRENT_RUNS: must be a positive integer, got %q", v)
 		}
 		cfg.MaxConcurrentRuns = n
+	}
+
+	// API_ADDR: default :9090; an explicitly empty value disables the listener
+	// (envOr cannot express that, hence LookupEnv).
+	if v, ok := os.LookupEnv("API_ADDR"); ok {
+		cfg.APIAddr = v
+	} else {
+		cfg.APIAddr = ":9090"
 	}
 	return cfg, nil
 }

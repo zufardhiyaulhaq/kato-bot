@@ -171,4 +171,52 @@ func (c *Client) Run(ctx context.Context, name string, inputs map[string]string)
 	return core.RunResult{Run: w.Run, Phase: w.Phase, Summary: w.Summary, Warning: w.Warning}, nil
 }
 
+// ---- raw surface (verbatim proxying for the gateway/MCP/REST front doors) ----
+//
+// These return kato's 2xx response bytes untouched (including kato's
+// capitalized-key wart on Param/OutputField), so the proxy never reshapes
+// payloads. Non-2xx becomes *APIError via do(), like the typed methods.
+
+// raw performs a request with an optional raw query string and body.
+func (c *Client) raw(ctx context.Context, method, path, rawQuery string, body []byte) (json.RawMessage, error) {
+	if rawQuery != "" {
+		path += "?" + rawQuery
+	}
+	var rd io.Reader
+	if len(body) > 0 {
+		rd = bytes.NewReader(body)
+	}
+	return c.do(ctx, method, path, rd)
+}
+
+func (c *Client) RawListUseCases(ctx context.Context) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodGet, "/api/v1/usecases", "", nil)
+}
+
+func (c *Client) RawGetUseCase(ctx context.Context, name string) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodGet, "/api/v1/usecases/"+url.PathEscape(name), "", nil)
+}
+
+// RawRunUseCase forwards the caller's body and raw query (e.g. "includeOutputs=true") verbatim.
+func (c *Client) RawRunUseCase(ctx context.Context, name, rawQuery string, body []byte) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodPost, "/api/v1/usecases/"+url.PathEscape(name)+"/run", rawQuery, body)
+}
+
+func (c *Client) RawListMethods(ctx context.Context) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodGet, "/api/v1/methods", "", nil)
+}
+
+func (c *Client) RawRunMethod(ctx context.Context, name string, body []byte) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodPost, "/api/v1/methods/"+url.PathEscape(name)+"/run", "", body)
+}
+
+// RawListRuns forwards the caller's raw query (e.g. "usecase=pod-x") verbatim.
+func (c *Client) RawListRuns(ctx context.Context, rawQuery string) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodGet, "/api/v1/runs", rawQuery, nil)
+}
+
+func (c *Client) RawGetRun(ctx context.Context, name string) (json.RawMessage, error) {
+	return c.raw(ctx, http.MethodGet, "/api/v1/runs/"+url.PathEscape(name), "", nil)
+}
+
 var _ core.KatoClient = (*Client)(nil)

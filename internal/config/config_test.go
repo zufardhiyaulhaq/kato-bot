@@ -17,6 +17,15 @@ func writeClusters(t *testing.T, body string) string {
 	return path
 }
 
+// setRequiredEnv sets the minimum env needed for Load to succeed: LARK_APP_ID,
+// LARK_APP_SECRET, and a KATO_CLUSTERS_FILE pointing at a valid one-cluster file.
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("LARK_APP_ID", "cli_x")
+	t.Setenv("LARK_APP_SECRET", "secret_x")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+}
+
 const twoClusters = `clusters:
   - name: prod
     url: http://kato.prod.svc:8080
@@ -155,4 +164,41 @@ func TestLoadClustersFileMissing(t *testing.T) {
 	if _, err := Load(); err == nil {
 		t.Fatal("expected an error when the clusters file is missing")
 	}
+}
+
+// API_ADDR: default :9090; explicitly empty disables the API listener.
+func TestAPIAddr(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		os.Unsetenv("API_ADDR") // ensure not set: Go test env is process-global
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.APIAddr != ":9090" {
+			t.Errorf("APIAddr = %q, want :9090", cfg.APIAddr)
+		}
+	})
+	t.Run("explicit empty disables", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("API_ADDR", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.APIAddr != "" {
+			t.Errorf("APIAddr = %q, want empty (disabled)", cfg.APIAddr)
+		}
+	})
+	t.Run("override", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("API_ADDR", ":7777")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.APIAddr != ":7777" {
+			t.Errorf("APIAddr = %q, want :7777", cfg.APIAddr)
+		}
+	})
 }
