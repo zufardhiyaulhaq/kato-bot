@@ -1,0 +1,845 @@
+openapi: 3.0.3
+info:
+  title: kato-bot REST proxy API
+  description: |
+    kato-bot's multi-cluster REST proxy: [kato](https://github.com/zufardhiyaulhaq/kato)'s
+    API, prefixed by cluster. One kato-bot fronts many clusters; discover them
+    with `GET /api/v1/clusters`, then call kato through
+    `/api/v1/clusters/{cluster}/...`. Requests and responses pass through
+    **verbatim** — bodies, query strings, and kato's response bytes are
+    forwarded untouched, so every kato semantic (status codes, error
+    messages, key casing) applies here unchanged.
+
+    Served on the `API_ADDR` listener (default `:9090`, chart value
+    `api.enabled`). The same listener also serves the **MCP** streamable-HTTP
+    endpoint at `/mcp` (tools mirroring these routes) — MCP is a different
+    protocol and is not described by this document. Health probes
+    (`/healthz`, `/readyz`) live on the separate `:8080` listener, not here.
+
+    **No authentication** (same stance as kato itself): anyone who can reach
+    the port can run kato troubleshooting on every configured cluster — keep
+    the Service ClusterIP / network-restricted.
+
+    Proxy-added semantics (everything else is kato's):
+      * `404 {"error": "unknown cluster \"x\""}` when `{cluster}` is not configured.
+      * `502 {"error": "cluster \"x\" unreachable: ..."}` when kato cannot be
+        reached (transport failure/timeout; internal addressing is stripped
+        from the message).
+      * kato non-2xx responses keep their status; the body is kato's error
+        message re-wrapped as `{"error": "..."}` (byte-identical in practice,
+        since that is kato's own envelope).
+
+    ## Serialization note (inherited from kato)
+    Two families of kato response objects use different key casing, matching
+    kato's Go source exactly: view objects and CRD types carry lowercase keys
+    (`name`, `ready`, …), while `methods.Param` / `methods.OutputField` and the
+    engine's `StepResult` / `IterationResult` serialize with capitalized Go
+    field names (`Name`, `Required`, `Outcome`, …). The proxy preserves this
+    verbatim; the schemas below match the wire.
+  version: v1alpha1
+  license:
+    name: See repository
+    url: https://github.com/zufardhiyaulhaq/kato-bot
+  contact:
+    name: kato-bot
+    url: https://github.com/zufardhiyaulhaq/kato-bot
+
+servers:
+  - url: http://localhost:9090
+    description: Local port-forward (kubectl -n kato port-forward svc/kato-bot 9090)
+  - url: http://kato-bot.kato.svc.cluster.local:9090
+    description: In-cluster Service (default namespace "kato", port 9090)
+
+tags:
+  - name: clusters
+    description: The configured kato clusters this proxy can target.
+  - name: usecases
+    description: Proxied kato troubleshooting flows and their execution.
+  - name: methods
+    description: Proxied kato built-in check library and direct method execution.
+  - name: runs
+    description: Proxied kato execution audit records.
+
+paths:
+  /api/v1/clusters:
+    get:
+      tags: [clusters]
+      summary: List configured clusters
+      description: |
+        The discovery root: every configured kato cluster, in configuration
+        order. `label` is the optional human-facing name and is omitted when
+        empty. The kato URL is intentionally never exposed. Served by kato-bot
+        itself (not proxied).
+      operationId: listClusters
+      responses:
+        '200':
+          description: The configured clusters.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clusters]
+                properties:
+                  clusters:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ClusterView'
+              example:
+                clusters:
+                  - name: prod
+                    label: Production
+                  - name: staging
+
+  /api/v1/clusters/{cluster}/usecases:
+    get:
+      tags: [usecases]
+      summary: List a cluster's use cases
+      description: Proxies kato's `GET /api/v1/usecases` verbatim.
+      operationId: listUseCases
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+      responses:
+        '200':
+          description: The cluster's use cases (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usecases]
+                properties:
+                  usecases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UseCaseView'
+        '404':
+          $ref: '#/components/responses/UnknownCluster'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/usecases/{name}:
+    get:
+      tags: [usecases]
+      summary: Get one use case's contract
+      description: Proxies kato's `GET /api/v1/usecases/{name}` verbatim.
+      operationId: getUseCase
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/UseCaseName'
+      responses:
+        '200':
+          description: The use case (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UseCaseView'
+        '404':
+          description: Unknown cluster (kato-bot) or use case not found (kato).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unknownCluster:
+                  value:
+                    error: unknown cluster "x"
+                useCaseNotFound:
+                  value:
+                    error: use case not found
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/usecases/{name}/run:
+    post:
+      tags: [usecases]
+      summary: Execute a use case on a cluster
+      description: |
+        Proxies kato's `POST /api/v1/usecases/{name}/run` verbatim — body and
+        the `includeOutputs` query parameter are forwarded untouched.
+
+        **Synchronous and slow**: kato runs every step and waits for the LLM
+        summary before responding (tens of seconds to minutes). kato-bot's
+        client allows up to `KATO_RUN_TIMEOUT` (default 360s) per call. All
+        kato semantics apply: 400 invalid inputs, 404 unknown use case, 422
+        not Ready, 429 kato's `KATO_MAX_CONCURRENT` cap, 500 engine/persist
+        errors. kato-bot imposes no cap of its own on this path.
+      operationId: runUseCase
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+        - $ref: '#/components/parameters/UseCaseName'
+        - name: includeOutputs
+          in: query
+          required: false
+          description: Forwarded to kato verbatim. Set to `false` to omit per-step `steps`.
+          schema:
+            type: string
+            enum: ['false']
+      requestBody:
+        required: false
+        description: Forwarded to kato verbatim. Missing body = empty inputs.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunRequest'
+            example:
+              inputs:
+                namespace: payments
+                pod: payment-api-xyz
+      responses:
+        '200':
+          description: The run executed and was persisted on the cluster (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResponse'
+        '400':
+          description: 'kato: invalid JSON body or invalid inputs.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown cluster (kato-bot) or use case not found (kato).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: 'kato: the use case exists but is not Ready.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 'kato: too many concurrent runs (KATO_MAX_CONCURRENT).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 'kato: execution or persistence error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/methods:
+    get:
+      tags: [methods]
+      summary: List a cluster's built-in methods
+      description: Proxies kato's `GET /api/v1/methods` verbatim.
+      operationId: listMethods
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+      responses:
+        '200':
+          description: The cluster's methods (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [methods]
+                properties:
+                  methods:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MethodView'
+        '404':
+          $ref: '#/components/responses/UnknownCluster'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/methods/{name}/run:
+    post:
+      tags: [methods]
+      summary: Execute one method directly on a cluster
+      description: |
+        Proxies kato's `POST /api/v1/methods/{name}/run` verbatim — a fast,
+        stateless probe: no Run persisted, no LLM. A method-level failure is a
+        finding, not an HTTP error (200 with `outcome: "failed"`). kato caps
+        concurrency with `KATO_METHOD_MAX_CONCURRENT` (429), independent of
+        the use case run cap.
+
+        Requires a kato version that ships this endpoint; older katos answer
+        404 with `404 page not found` (their mux's response, re-wrapped in the
+        error envelope).
+      operationId: runMethod
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+        - name: name
+          in: path
+          required: true
+          description: The method's registered name (see the methods listing).
+          schema:
+            type: string
+      requestBody:
+        required: false
+        description: Forwarded to kato verbatim. Missing body = no params.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MethodRunRequest'
+            example:
+              params:
+                namespace: payments
+                pod: payment-api-xyz
+      responses:
+        '200':
+          description: Method executed — outcome may be completed or failed (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MethodRunResponse'
+        '400':
+          description: 'kato: invalid JSON, missing required param, or unknown param.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown cluster (kato-bot), unknown method (kato), or a pre-method-run kato version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unknownCluster:
+                  value:
+                    error: unknown cluster "x"
+                unknownMethod:
+                  value:
+                    error: unknown method "x"
+                oldKato:
+                  value:
+                    error: 404 page not found
+        '429':
+          description: 'kato: too many concurrent method runs (KATO_METHOD_MAX_CONCURRENT).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 'kato: internal error.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/runs:
+    get:
+      tags: [runs]
+      summary: List a cluster's runs
+      description: |
+        Proxies kato's `GET /api/v1/runs` verbatim (newest first); the
+        `usecase` filter query parameter is forwarded untouched.
+      operationId: listRuns
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+        - name: usecase
+          in: query
+          required: false
+          description: Forwarded to kato verbatim. Filter to runs of this use case.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The cluster's runs (kato's response, verbatim).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Run'
+        '404':
+          $ref: '#/components/responses/UnknownCluster'
+        '500':
+          description: 'kato: failed to list runs.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+  /api/v1/clusters/{cluster}/runs/{name}:
+    get:
+      tags: [runs]
+      summary: Get one of a cluster's runs
+      description: Proxies kato's `GET /api/v1/runs/{name}` verbatim.
+      operationId: getRun
+      parameters:
+        - $ref: '#/components/parameters/Cluster'
+        - name: name
+          in: path
+          required: true
+          description: The Run's metadata.name.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The run (kato's response, verbatim — a full Run CRD object).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Unknown cluster (kato-bot) or run not found (kato).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 'kato: failed to fetch the run.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/ClusterUnreachable'
+
+components:
+  parameters:
+    Cluster:
+      name: cluster
+      in: path
+      required: true
+      description: A configured cluster's name (see `GET /api/v1/clusters`).
+      schema:
+        type: string
+
+    UseCaseName:
+      name: name
+      in: path
+      required: true
+      description: The UseCase's metadata.name.
+      schema:
+        type: string
+
+  responses:
+    UnknownCluster:
+      description: 'kato-bot: no configured cluster with that name.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: unknown cluster "x"
+
+    ClusterUnreachable:
+      description: |
+        kato-bot: the cluster's kato could not be reached (transport failure
+        or timeout). Internal addressing (URL, IP:port, hostname) is stripped
+        from the message.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: 'cluster "prod" unreachable: connect: connection refused'
+
+  schemas:
+    Error:
+      type: object
+      description: Uniform error envelope (kato-bot's own errors and re-wrapped kato errors).
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+    ClusterView:
+      type: object
+      description: One configured cluster. The kato URL is never exposed.
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Unique cluster name, used in the path of every proxied route.
+        label:
+          type: string
+          description: Optional human-facing name. Omitted when empty.
+
+    # ---- kato schemas, mirrored (responses are proxied verbatim) ----
+    # Source of truth: kato's openapi.yaml (github.com/zufardhiyaulhaq/kato).
+
+    InputDecl:
+      type: object
+      description: One declared UseCase input. v1 supports type "string" only.
+      required: [name]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string]
+          default: string
+          description: Input type. Omitted in JSON when empty; defaults to "string".
+        required:
+          type: boolean
+          default: false
+          description: Omitted in JSON when false.
+        default:
+          type: string
+          description: >
+            Used by kato when the caller omits this input. Omitted in JSON
+            when empty (empty = no default). A default satisfies required.
+
+    UseCaseView:
+      type: object
+      description: The API projection of a UseCase (its runnable contract).
+      required: [name, description, inputs, ready]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputDecl'
+        ready:
+          type: boolean
+          description: True when the UseCase passed validation and can be run.
+
+    Param:
+      type: object
+      description: >
+        A method input parameter. NOTE: serialized with capitalized keys
+        (no JSON tags on kato's Go struct).
+      required: [Name, Required, Description]
+      properties:
+        Name:
+          type: string
+        Required:
+          type: boolean
+        Description:
+          type: string
+
+    OutputField:
+      type: object
+      description: >
+        A method scalar output field. NOTE: serialized with capitalized keys
+        (no JSON tags on kato's Go struct).
+      required: [Name, Type, Description]
+      properties:
+        Name:
+          type: string
+        Type:
+          type: string
+          enum: [string, int, bool]
+        Description:
+          type: string
+
+    ItemFieldView:
+      type: object
+      description: One typed field of a list output's item record.
+      required: [name, type, description]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string, int, bool]
+        description:
+          type: string
+
+    ListOutputView:
+      type: object
+      description: A method's list output (a named collection of item records).
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        itemFields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemFieldView'
+
+    MethodView:
+      type: object
+      description: The API projection of a registered built-in method.
+      required: [name, description, params, outputs]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/Param'
+        outputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputField'
+        lists:
+          type: array
+          description: List outputs, omitted when the method produces none.
+          items:
+            $ref: '#/components/schemas/ListOutputView'
+
+    MethodRunRequest:
+      type: object
+      properties:
+        params:
+          type: object
+          additionalProperties:
+            type: string
+          description: Method params; all values are strings. Omitted = no params.
+
+    MethodRunResponse:
+      type: object
+      required: [outcome, outputs]
+      properties:
+        outcome:
+          type: string
+          enum: [completed, failed]
+        outputs:
+          type: object
+          description: >
+            All of the method's outputs: scalars (string/int/bool) plus each
+            declared list output as an array of item records. Empty object
+            when the method failed.
+        error:
+          type: string
+          description: Present only when outcome is "failed".
+
+    RunRequest:
+      type: object
+      description: Body of a use case run request.
+      properties:
+        inputs:
+          type: object
+          description: Input name/value pairs. All values are strings on the wire.
+          additionalProperties:
+            type: string
+
+    Outputs:
+      type: object
+      description: >
+        A step's outputs: a flat map of the method's declared scalar outputs
+        plus, for list-producing methods, list outputs as arrays of item
+        records.
+      additionalProperties: true
+
+    IterationResult:
+      type: object
+      description: >
+        One forEach iteration's result. NOTE: serialized with capitalized keys
+        (no JSON tags on kato's Go struct).
+      properties:
+        Item:
+          type: object
+          description: The list item this iteration ran against.
+          additionalProperties:
+            type: string
+        Outcome:
+          type: string
+          enum: [completed, failed]
+        Outputs:
+          $ref: '#/components/schemas/Outputs'
+        Error:
+          type: string
+          description: Failure reason when Outcome is failed.
+
+    StepResult:
+      type: object
+      description: >
+        One step's result as returned inline in a run response. NOTE:
+        serialized with capitalized keys (no JSON tags on kato's Go struct).
+      properties:
+        Name:
+          type: string
+        Outcome:
+          type: string
+          enum: [completed, skipped, failed]
+        Reason:
+          type: string
+          description: Why the step was skipped or failed.
+        Outputs:
+          $ref: '#/components/schemas/Outputs'
+        Error:
+          type: string
+        Iterations:
+          type: array
+          description: Per-item results for a forEach step.
+          items:
+            $ref: '#/components/schemas/IterationResult'
+        Note:
+          type: string
+          description: forEach truncation note, e.g. "matched 12, checked 5".
+        SummaryFilter:
+          type: array
+          nullable: true
+          description: >
+            The step's summaryFilter (which outputs reach the LLM). null = all
+            outputs; empty = none.
+          items:
+            type: string
+
+    RunResponse:
+      type: object
+      description: The synchronous response of a use case run.
+      required: [run, phase]
+      properties:
+        run:
+          type: string
+          description: The created Run CRD's metadata.name (on the target cluster).
+        phase:
+          type: string
+          enum: [Running, Succeeded, PartiallySucceeded, Failed]
+        summary:
+          type: string
+          description: LLM-written summary. Omitted when empty.
+        warning:
+          type: string
+          description: Set when the summary could not be produced. Omitted when empty.
+        steps:
+          type: array
+          description: >
+            Per-step results. Omitted when the includeOutputs=false query
+            parameter is set.
+          items:
+            $ref: '#/components/schemas/StepResult'
+
+    # ---- Run CRD (returned verbatim by the run read endpoints) ----
+
+    ObjectMeta:
+      type: object
+      description: >
+        Standard Kubernetes object metadata (subset). Additional standard
+        fields may be present.
+      properties:
+        name:
+          type: string
+        generateName:
+          type: string
+        namespace:
+          type: string
+        uid:
+          type: string
+        resourceVersion:
+          type: string
+        creationTimestamp:
+          type: string
+          format: date-time
+          nullable: true
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: true
+
+    RunSpec:
+      type: object
+      description: The Run's spec.
+      required: [useCase]
+      properties:
+        useCase:
+          type: string
+        inputs:
+          type: object
+          additionalProperties:
+            type: string
+
+    RunStepIteration:
+      type: object
+      description: One forEach iteration recorded on the Run CRD.
+      required: [outcome]
+      properties:
+        item:
+          type: object
+          additionalProperties:
+            type: string
+        outcome:
+          type: string
+          enum: [completed, failed]
+        outputs:
+          $ref: '#/components/schemas/Outputs'
+        error:
+          type: string
+
+    RunStep:
+      type: object
+      description: One step recorded on the Run CRD status.
+      required: [name, outcome]
+      properties:
+        name:
+          type: string
+        outcome:
+          type: string
+          enum: [completed, skipped, failed]
+        reason:
+          type: string
+        outputs:
+          $ref: '#/components/schemas/Outputs'
+        error:
+          type: string
+        iterations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStepIteration'
+        note:
+          type: string
+
+    RunStatus:
+      type: object
+      description: The Run's status subresource.
+      properties:
+        phase:
+          type: string
+          enum: [Running, Succeeded, PartiallySucceeded, Failed]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+        summary:
+          type: string
+        note:
+          type: string
+        warning:
+          type: string
+          description: Set when the summary could not be produced.
+        modelConfig:
+          type: string
+          description: Which ModelConfig produced the summary.
+
+    Run:
+      type: object
+      description: >
+        The Run custom resource, returned verbatim (Kubernetes object) by the
+        run read endpoints.
+      properties:
+        apiVersion:
+          type: string
+          example: kato.zufardhiyaulhaq.com/v1alpha1
+        kind:
+          type: string
+          example: Run
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RunSpec'
+        status:
+          $ref: '#/components/schemas/RunStatus'
